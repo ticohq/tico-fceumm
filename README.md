@@ -1,8 +1,33 @@
-[![Build Status](https://travis-ci.org/libretro/libretro-fceumm.svg?branch=master)](https://travis-ci.org/libretro/libretro-fceumm)
-[![Build status](https://ci.appveyor.com/api/projects/status/etk1vcouybahdbkt/branch/master?svg=true)](https://ci.appveyor.com/project/bparker06/libretro-fceumm/branch/master)
+<picture>  
+<source media="(prefers-color-scheme: dark)" srcset="https://i.imgur.com/8qsV6MH.png">  
+<source media="(prefers-color-scheme: light)" srcset="https://i.imgur.com/4cpzGnB.png">  
+<img src="https://i.imgur.com/8qsV6MH.png" width="200">  
+</picture>  
 
-# FCE Ultra mappers modified
-FCEU "mappers modified" is an unofficial build of FCEU Ultra by CaH4e3, which supports a lot of new mappers including some obscure mappers such as one for unlicensed NES ROM's.
+*Part of the tico ecosystem* — https://www.ticoverse.com
 
-# Sequential targets Light Guns support added
-Support for Sequential targets Light Guns has been added. "Gun Aux A" serves as light sensor logic input.
+**FCEUmm** is a Nintendo Entertainment System and Famicom emulator focused on compatibility, low overhead, and dependable performance.
+
+This fork adapts FCEUmm to work with the tico frontend and provides a standalone build for the Nintendo Switch, adding a small set of practical features while keeping the original experience familiar.
+
+----------
+
+## Summary
+
+This fork focuses on making FCEUmm more usable in practice without changing its core purpose.
+
+It adds:
+
+-   Custom overlay matching tico design, including time, date, user avatar, and game title
+-   Explicit control over display (integer scaling and aspect ratios)
+-   Runtime-selectable rendering filters  
+-   Built-in save and load state support
+-   Integrated RetroAchievements with custom alerts
+
+----------
+
+## A Note
+
+A lot of work in this scene disappears over time — not because it lacked value, but because it was never shared.
+
+If you are building something, consider releasing it. Even small contributions can help others move forward.

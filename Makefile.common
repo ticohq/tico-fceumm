@@ -62,7 +62,6 @@ SOURCES_C += \
 	$(CORE_DIR)/unif.c \
 	$(CORE_DIR)/x6502.c
 
-ifneq ($(STATIC_LINKING), 1)
 	SOURCES_C += \
 		$(LIBRETRO_COMM_DIR)/compat/compat_posix_string.c \
 		$(LIBRETRO_COMM_DIR)/compat/compat_snprintf.c \
@@ -78,4 +77,3 @@ ifneq ($(STATIC_LINKING), 1)
 		$(LIBRETRO_COMM_DIR)/string/stdstring.c \
 		$(LIBRETRO_COMM_DIR)/time/rtime.c \
 		$(LIBRETRO_COMM_DIR)/vfs/vfs_implementation.c
-endif
