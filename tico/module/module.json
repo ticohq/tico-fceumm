@@ -1,0 +1,34 @@
+{
+  "id": "fceumm",
+  "name": "FCEUmm",
+  "nro": "tico-fceumm.nro",
+  "launch": "\"{nro}\" \"{slug}\" \"{rom}\" \"{title}\"",
+  "settings": "config/modules/fceumm/settings.json",
+  "config_file": "fceumm.jsonc",
+  "is_libretro": true,
+  "achievements": true,
+  "systems": [
+    {
+      "slug": "nes",
+      "title": "Nintendo Entertainment System",
+      "short_title": "NES",
+      "extensions": [
+        ".nes",
+        ".fds",
+        ".unf",
+        ".unif",
+        ".zip",
+        ".7z",
+        ".rar"
+      ],
+      "games_file": "nes.json",
+      "retroachievements_id": 7,
+      "colors": {
+        "start": "E65F7A",
+        "end": "E6A85F",
+        "start_dark": "A84457",
+        "end_dark": "A87A3F"
+      }
+    }
+  ]
+}
