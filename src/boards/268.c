@@ -20,10 +20,10 @@
 #include "mapinc.h"
 #include "mmc3.h"
 
-static uint8 *CHRRAM =NULL;
-static uint8 submapper;
+static uint8_t *CHRRAM =NULL;
+static uint8_t submapper;
 
-static void Mapper268_PRGWrap(uint32 A, uint8 V) {
+static void Mapper268_PRGWrap(uint32_t A, uint8_t V) {
 	int prgMaskMMC3, prgMaskGNROM, prgOffset;
 	
 	prgMaskMMC3 =(EXPREGS[3] &0x10? 0x00: 0x0F) /* PRG A13-A16 */
@@ -34,12 +34,13 @@ static void Mapper268_PRGWrap(uint32 A, uint8 V) {
 	;
 	switch(submapper &~1) {
 	default:	/* Original implementation */
-		prgMaskGNROM =EXPREGS[3] &0x10? (EXPREGS[1] &0x02? 0x03: 0x01): 0x00;
-		prgOffset    =EXPREGS[3]     &0x00E
-		             |EXPREGS[0] <<4 &0x070
-			     |EXPREGS[1] <<3 &0x080
-			     |EXPREGS[1] <<6 &0x300
-			     |EXPREGS[0] <<6 &0xC00;
+		prgMaskGNROM = EXPREGS[3] &0x10? (EXPREGS[1] &0x02? 0x03: 0x01): 0x00;
+		prgOffset    = EXPREGS[3]      &0x000E
+		             | EXPREGS[0] <<4  &0x0070
+			     | EXPREGS[1] <<3  &0x0080
+			     | EXPREGS[1] <<6  &0x0300
+			     | EXPREGS[0] <<6  &0x0C00
+			     |~EXPREGS[1] <<12 &0x1000;
 		break;
 	case 2:		/* Later revision with different arrangement of register 1 */
 		prgMaskGNROM =EXPREGS[3] &0x10? (EXPREGS[1] &0x10? 0x01: 0x03): 0x00;
@@ -66,6 +67,14 @@ static void Mapper268_PRGWrap(uint32 A, uint8 V) {
 		prgOffset &=ROM_size -1;
 		if (EXPREGS[0] &0x80? !!(EXPREGS[0] &0x08): !!(DRegBuf[0] &0x80)) prgOffset |=ROM_size;
 		break;
+	case 8: /* 2 MiB regular plus extra latch, CHR-RAM protection */
+		prgMaskGNROM =EXPREGS[3] &0x10? (EXPREGS[1] &0x02? 0x03: 0x01): 0x00;
+		prgOffset    =EXPREGS[3]     &0x00E 
+			     |EXPREGS[0] <<4 &0x070
+			     |EXPREGS[1] <<3 &0x080
+			     |EXPREGS[6] <<8 &0x300
+			     |EXPREGS[6] <<6 &0xC00;
+		break;
 	}
 	prgOffset &=~(prgMaskMMC3 | prgMaskGNROM);
 	setprg8(A, V &prgMaskMMC3 | prgOffset | A >>13 &prgMaskGNROM);
@@ -74,18 +83,18 @@ static void Mapper268_PRGWrap(uint32 A, uint8 V) {
 	SetupCartCHRMapping(0, CHRptr[0], CHRsize[0], (submapper &~1) ==8 && EXPREGS[0] &0x10? 0: 1);
 }
 
-static void Mapper268_CHRWrap(uint32 A, uint8 V) {
+static void Mapper268_CHRWrap(uint32_t A, uint8_t V) {
 	int chrMaskMMC3, chrMaskGNROM, chrOffset;
 	
 	chrMaskMMC3  =EXPREGS[3] &0x10? 0x00: EXPREGS[0] &0x80? 0x7F: 0xFF;
 	chrMaskGNROM =EXPREGS[3] &0x10? 0x07: 0x00;
-	chrOffset    =EXPREGS[0] <<4 &0x380 | EXPREGS[2] <<3 &0x078;
+	chrOffset    =EXPREGS[0] <<9 &0xC00 | EXPREGS[0] <<4 &0x380 | EXPREGS[2] <<3 &0x078;
 	chrOffset   &=~(chrMaskMMC3 | chrMaskGNROM);
 	
 	setchr1r(CHRRAM && EXPREGS[4] &0x01 && (V &0xFE) ==(EXPREGS[4] &0xFE)? 0x10: 0x00, A, V &chrMaskMMC3 | chrOffset | A >>10 &chrMaskGNROM);
 }
 
-void Mapper268_MirrorWrap(uint8 V) {
+static void Mapper268_MirrorWrap(uint8_t V) {
 	A000B =V;
 	if ((submapper &~1) ==10 && ~EXPREGS[0] &0x20)
 		setmirror(EXPREGS[0] &0x10? MI_1: MI_0);
@@ -108,21 +117,31 @@ static DECLFW(Mapper268_WriteReg) {
 		if (index ==2) {
 			if (EXPREGS[2] &0x80) V =V &0x0F | EXPREGS[2] &~0x0F;
 			V &=~EXPREGS[2] >>3 &0xE |0xF1;
-		}		
-		EXPREGS[index] =V;
-		FixMMC3PRG(MMC3_cmd);
-		FixMMC3CHR(MMC3_cmd);
-		Mapper268_MirrorWrap(A000B);
+		}
+		
+		if ((submapper &~1) == 8 && index == 1 && V &0x04 && V &0x08) { /* Latch clocking another latch */
+			EXPREGS[6] = V;
+			FixMMC3PRG(MMC3_cmd);
+			FixMMC3CHR(MMC3_cmd);
+			Mapper268_MirrorWrap(A000B);
+		}
+		
+		if (index <= 5) {
+			EXPREGS[index] =V;
+			FixMMC3PRG(MMC3_cmd);
+			FixMMC3CHR(MMC3_cmd);
+			Mapper268_MirrorWrap(A000B);
+		}
 	}
 }
 
 static void Mapper268_Reset(void) {
-	EXPREGS[0] =EXPREGS[1] =EXPREGS[2] =EXPREGS[3] =EXPREGS[4] =EXPREGS[5] =0;
+	EXPREGS[0] =EXPREGS[1] =EXPREGS[2] =EXPREGS[3] =EXPREGS[4] =EXPREGS[5] =EXPREGS[6] =0;
 	MMC3RegReset();
 }
 
 static void Mapper268_Power(void) {	
-	EXPREGS[0] =EXPREGS[1] =EXPREGS[2] =EXPREGS[3] =EXPREGS[4] =EXPREGS[5] =0;
+	EXPREGS[0] =EXPREGS[1] =EXPREGS[2] =EXPREGS[3] =EXPREGS[4] =EXPREGS[5] =EXPREGS[6] =0;
 	GenMMC3Power();
 	SetReadHandler(0x6000, 0x7FFF, Mapper268_ReadWRAM);
 	if (submapper &1) {
@@ -150,7 +169,7 @@ void Mapper268_Init(CartInfo *info) {
 	AddExState(EXPREGS, 8, 0, "EXPR");
 	
 	if (info->CHRRomSize && info->CHRRamSize + info->CHRRamSaveSize) {
-		CHRRAM =(uint8 *)FCEU_gmalloc(info->CHRRamSize + info->CHRRamSaveSize);
+		CHRRAM =(uint8_t *)FCEU_gmalloc(info->CHRRamSize + info->CHRRamSaveSize);
 		SetupCartCHRMapping(0x10, CHRRAM, info->CHRRamSize + info->CHRRamSaveSize, 1);
 		AddExState(CHRRAM, info->CHRRamSize + info->CHRRamSaveSize, 0, "CRAM");
 	}

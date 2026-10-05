@@ -24,21 +24,21 @@
 
 static void (*VRC24_cbSync)();
 static int VRC24_A0, VRC24_A1;
-static int (*VRC24_cbGetPRGBank)(uint8);
-static int (*VRC24_cbGetCHRBank)(uint8);
+static int (*VRC24_cbGetPRGBank)(uint8_t);
+static int (*VRC24_cbGetCHRBank)(uint8_t);
 static DECLFR((*VRC24_cbReadWRAM));
 static DECLFW((*VRC24_cbWriteWRAM));
 static DECLFW((*VRC24_cbExternalSelect));
-static uint8 VRC24_isVRC4; /* VRC2 or VRC4? VRC2 has no single-screen mirroring, no PRG A14 swap and no IRQ counter */
-static uint8 VRC24_useRepeatBit; /* Some VRC4 clones ignore the "repeat" bit in the IRQ Mode register */
-static uint8 VRC24_prg[2];
-static uint16 VRC24_chr[8];
-static uint8 VRC24_mirroring;
-static uint8 VRC24_misc;
-uint8 VRC2_pins; /* EEPROM interface */
-static uint8 VRC4_latch;
-static uint8 VRC4_mode;
-static uint8 VRC4_count;
+static uint8_t VRC24_isVRC4; /* VRC2 or VRC4? VRC2 has no single-screen mirroring, no PRG A14 swap and no IRQ counter */
+static uint8_t VRC24_useRepeatBit; /* Some VRC4 clones ignore the "repeat" bit in the IRQ Mode register */
+static uint8_t VRC24_prg[2];
+static uint16_t VRC24_chr[8];
+static uint8_t VRC24_mirroring;
+static uint8_t VRC24_misc;
+uint8_t VRC2_pins; /* EEPROM interface */
+static uint8_t VRC4_latch;
+static uint8_t VRC4_mode;
+static uint8_t VRC4_count;
 static signed short int VRC4_cycles;
 
 static SFORMAT VRC24_stateRegs[] = {
@@ -90,16 +90,16 @@ void VRC24_syncWRAM (int OR) {
 	if (PRGsize[0x10]) setprg8r(0x10, 0x6000, OR);
 }
 
-int VRC24_getPRGBank (uint8 bank) {
+int VRC24_getPRGBank (uint8_t bank) {
 	if (~bank &1 && VRC24_misc &2) bank ^= 2;
 	return bank &2? (0xFE | bank &1): VRC24_prg[bank &1];
 }
 
-int VRC24_getCHRBank (uint8 bank) {
+int VRC24_getCHRBank (uint8_t bank) {
 	return VRC24_chr[bank &7];
 }
 
-void VRC24_syncMirror () {
+void VRC24_syncMirror(void) {
 	setmirror(VRC24_isVRC4 && VRC24_mirroring &2? (VRC24_mirroring &1? MI_1: MI_0): (VRC24_mirroring &1? MI_H: MI_V));
 }
 
@@ -113,7 +113,7 @@ DECLFR (VRC24_readWRAM) {
 			return VRC24_cbReadWRAM(A);
 		else
 		if (WRAMSize)
-			CartBR(((A -0x6000) &(WRAMSize -1)) +0x6000);
+			return CartBR(((A -0x6000) &(WRAMSize -1)) +0x6000);
 		else
 			return A >>8;
 	} else
@@ -194,7 +194,7 @@ void FP_FASTAPASS(1) VRC4_cpuCycle (int a) {
 	}
 }
 
-void VRC24_clear () {
+void VRC24_clear(void) {
 	VRC24_prg[0] = 0; VRC24_prg[1] = 0;
 	VRC24_chr[0] = 0; VRC24_chr[1] = 1; VRC24_chr[2] = 2; VRC24_chr[3] = 3; VRC24_chr[4] = 4; VRC24_chr[5] = 5; VRC24_chr[6] = 6; VRC24_chr[7] = 7;
 	VRC24_mirroring = VRC2_pins = VRC4_latch = VRC4_mode = VRC4_count = VRC4_cycles = 0;
@@ -215,7 +215,7 @@ static void VRC24_setHandlers () {
 	if (VRC24_isVRC4) MapIRQHook = VRC4_cpuCycle;
 }
 
-static void VRC2_configure (void (*sync)(), int A0, int A1, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+static void VRC2_configure (void (*sync)(), int A0, int A1, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	VRC24_cbSync = sync;
 	VRC24_A0 = A0;
 	VRC24_A1 = A1;
@@ -224,9 +224,10 @@ static void VRC2_configure (void (*sync)(), int A0, int A1, int (*prg)(uint8), i
 	VRC24_cbGetCHRBank = chr? chr: VRC24_getCHRBank;
 	VRC24_cbReadWRAM = read;
 	VRC24_cbWriteWRAM = write;
+	VRC24_cbExternalSelect = NULL;
 }
 
-static void VRC4_configure (void (*sync)(), int A0, int A1, uint8 useRepeatBit, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write)), DECLFW((*externalSelect))) {
+static void VRC4_configure (void (*sync)(), int A0, int A1, uint8_t useRepeatBit, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write)), DECLFW((*externalSelect))) {
 	VRC24_cbSync = sync;
 	VRC24_A0 = A0;
 	VRC24_A1 = A1;
@@ -244,7 +245,7 @@ void VRC24_reconfigure(int A0, int A1) {
 	VRC24_A1 = A1;
 }
 
-void VRC2_activate (uint8 clear, void (*sync)(), int A0, int A1, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void VRC2_activate (uint8_t clear, void (*sync)(), int A0, int A1, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	VRC2_configure(sync, A0, A1, prg, chr, read, write);
 	VRC24_setHandlers();
 	if (clear)
@@ -253,7 +254,7 @@ void VRC2_activate (uint8 clear, void (*sync)(), int A0, int A1, int (*prg)(uint
 		VRC24_cbSync();
 }
 
-void VRC4_activate (uint8 clear, void (*sync)(), int A0, int A1, uint8 useRepeatBit, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write)), DECLFW((*externalSelect))) {
+void VRC4_activate (uint8_t clear, void (*sync)(), int A0, int A1, uint8_t useRepeatBit, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write)), DECLFW((*externalSelect))) {
 	VRC4_configure(sync, A0, A1, useRepeatBit, prg, chr, read, write, externalSelect);
 	VRC24_setHandlers();
 	if (clear)
@@ -262,17 +263,17 @@ void VRC4_activate (uint8 clear, void (*sync)(), int A0, int A1, uint8 useRepeat
 		VRC24_cbSync();
 }
 
-void VRC2_addExState () {
+void VRC2_addExState(void) {
 	AddExState(VRC24_stateRegs, ~0, 0, 0);
 	AddExState(VRC2_stateRegs, ~0, 0, 0);
 }
 
-void VRC4_addExState () {
+void VRC4_addExState(void) {
 	AddExState(VRC24_stateRegs, ~0, 0, 0);
 	AddExState(VRC4_stateRegs, ~0, 0, 0);
 }
 
-void VRC24_addExState () {
+void VRC24_addExState(void) {
 	AddExState(VRC24_stateRegs, ~0, 0, 0);
 	AddExState(VRC2_stateRegs, ~0, 0, 0);
 	AddExState(VRC4_stateRegs, ~0, 0, 0);
@@ -282,19 +283,20 @@ void VRC24_restore (int version) {
 	VRC24_cbSync();
 }
 
-void VRC24_power () {
+void VRC24_power(void) {
 	VRC24_setHandlers();
 	VRC24_clear();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
-void VRC2_init (CartInfo *info, void (*sync)(), int A0, int A1, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void VRC2_init (CartInfo *info, void (*sync)(), int A0, int A1, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	VRC2_addExState();
 	VRC2_configure(sync, A0, A1, prg, chr, read, write);
 	info->Power = VRC24_power;
 	GameStateRestore = VRC24_restore;
 }
 
-void VRC4_init (CartInfo *info, void (*sync)(), int A0, int A1, uint8 useRepeatBit, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write)), DECLFW((*externalSelect))) {
+void VRC4_init (CartInfo *info, void (*sync)(), int A0, int A1, uint8_t useRepeatBit, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write)), DECLFW((*externalSelect))) {
 	VRC4_addExState();
 	VRC4_configure(sync, A0, A1, useRepeatBit, prg, chr, read, write, externalSelect);
 	info->Power = VRC24_power;

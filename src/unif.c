@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <compat/strl.h>
+
 
 #include  "fceu-types.h"
 #include  "fceu.h"
@@ -45,7 +47,7 @@
 
 typedef struct {
 	char ID[4];
-	uint32 info;
+	uint32_t info;
 } UNIF_HEADER;
 
 typedef struct {
@@ -66,33 +68,43 @@ static int vramo;
 static int mirrortodo;
 static int submapper;
 static int cspecial;
-static uint8 *boardname;
-static uint8 *sboardname;
+static uint8_t *boardname;
+static uint8_t *sboardname;
 
-static uint32 CHRRAMSize;
-uint8 *UNIFchrrama = 0;
+static uint32_t CHRRAMSize;
+uint8_t *UNIFchrrama = 0;
 
 static UNIF_HEADER unhead;
 static UNIF_HEADER uchead;
 
 
-static uint8 *malloced[32];
-static uint32 mallocedsizes[32];
+static uint8_t *malloced[32];
+static uint32_t mallocedsizes[32];
 /* used to preserve the rom order as found in the rom file
  * at least one mapper has bank 4 at the beginning for e.g. */
-static uint32 prg_idx[16];
-static uint32 chr_idx[16];
+static uint32_t prg_idx[16];
+static uint32_t chr_idx[16];
 
-static uint32 prg_chip_count;
-static uint32 chr_chip_count;
+static uint32_t prg_chip_count;
+static uint32_t chr_chip_count;
 
-static uint64 UNIF_PRGROMSize, UNIF_CHRROMSize;
+static uint64_t UNIF_PRGROMSize, UNIF_CHRROMSize;
 
-static int FixRomSize(uint32 size, uint32 minimum) {
-	uint32 x = 1;
+/* Returns the next power of two >= max(size, minimum), capped at 0x80000000.
+ * Returning uint32_t (not int) matters because callers store the result back
+ * into a uint64_t variable: a signed-int cap of 0x80000000 is INT_MIN, and
+ * widening to uint64_t sign-extends to 0xFFFFFFFF80000000, which then drives
+ * a 16-EiB malloc. Defensive even though the cap is unreachable in practice
+ * given LoadPRG/LoadCHR's own per-chunk caps. */
+static uint32_t FixRomSize(uint32_t size, uint32_t minimum) {
+	uint32_t x = 1;
 
 	if (size < minimum)
 		return minimum;
+	/* Cap input to avoid the infinite loop where x doubles past 0x80000000
+	 * and wraps to 0, never reaching size. */
+	if (size > 0x80000000u)
+		return 0x80000000u;
 	while (x < size)
 		x <<= 1;
 	return x;
@@ -143,7 +155,7 @@ static void Cleanup(void) {
 	ResetUNIF();
 }
 
-static uint8 exntar[2048];
+static uint8_t exntar[2048];
 
 static void MooMirroring(void) {
 	if (mirrortodo < 0x4)
@@ -158,7 +170,7 @@ static void MooMirroring(void) {
 
 static int DoMirroring(FCEUFILE *fp) {
 	int t;
-	uint32 i;
+	uint32_t i;
 	if (uchead.info == 1) {
 		if ((t = FCEU_fgetc(fp)) == EOF)
 			return(0);
@@ -169,13 +181,21 @@ static int DoMirroring(FCEUFILE *fp) {
 				FCEU_printf(" Name/Attribute Table Mirroring: %s\n", stuffo[t]);
 		}
 	} else {
-		FCEU_printf(" Incorrect Mirroring Chunk Size (%d). Data is:", uchead.info);
-		for (i = 0; i < uchead.info; i++) {
+		/* Diagnostic dump for malformed chunks: cap to a sensible
+		 * maximum so a chunk that declares info ~= 0xFFFFFFFF doesn't
+		 * make us spin printf'ing the whole file. Skip past any
+		 * remaining bytes so the chunk loop continues correctly. */
+		uint32_t dump_max = uchead.info < 16 ? uchead.info : 16;
+		FCEU_printf(" Incorrect Mirroring Chunk Size (%u). Data is:", (unsigned)uchead.info);
+		for (i = 0; i < dump_max; i++) {
 			if ((t = FCEU_fgetc(fp)) == EOF)
 				return(0);
 			FCEU_printf(" %02x", t);
 		}
-		FCEU_printf("\n Default Name/Attribute Table Mirroring: Horizontal\n", uchead.info);
+		if (uchead.info > dump_max
+		    && FCEU_fseek(fp, uchead.info - dump_max, SEEK_CUR) < 0)
+			return(0);
+		FCEU_printf("\n Default Name/Attribute Table Mirroring: Horizontal\n");
 		mirrortodo = 0;
 	}
 	return(1);
@@ -197,16 +217,19 @@ static int NAME(FCEUFILE *fp) {
 	FCEU_printf(" Name: %s\n", namebuf);
 
 	if (!GameInfo->name) {
-		GameInfo->name = malloc(strlen(namebuf) + 1);
-		strcpy((char*)GameInfo->name, namebuf);
+		size_t n = strlen(namebuf) + 1;
+		GameInfo->name = malloc(n);
+		if (!GameInfo->name)
+			return(0);
+		strlcpy((char*)GameInfo->name, namebuf, n);
 	}
 	return(1);
 }
 
 static int DINF(FCEUFILE *fp) {
 	char name[100], method[100];
-	uint8 d, m;
-	uint16 y;
+	uint8_t d, m;
+	uint16_t y;
 	int t;
 
 	if (FCEU_fread(name, 1, 100, fp) != 100)
@@ -229,14 +252,18 @@ static int DINF(FCEUFILE *fp) {
 			"January", "February", "March", "April", "May", "June", "July",
 			"August", "September", "October", "November", "December"
 		};
-		FCEU_printf(" Dumped on: %s %d, %d\n", months[(m - 1) % 12], d, y);
+		/* m comes from a (possibly malicious) .unf file. If m is 0 or
+		 * out of range, '(m - 1) % 12' would underflow / wrap signed and
+		 * could index off the months[] array. Clamp into [1..12] first. */
+		unsigned mi = (m >= 1 && m <= 12) ? (unsigned)(m - 1) : 0;
+		FCEU_printf(" Dumped on: %s %d, %d\n", months[mi], d, y);
 	}
 	return(1);
 }
 
 static int CTRL(FCEUFILE *fp) {
 	int t;
-	uint32 i;
+	uint32_t i;
 	if (uchead.info == 1) {
 		if ((t = FCEU_fgetc(fp)) == EOF)
 			return(0);
@@ -251,11 +278,21 @@ static int CTRL(FCEUFILE *fp) {
 		if (t & 2)
 			GameInfo->input[1] = SI_ZAPPER;
 	} else {
-		FCEU_printf(" Incorrect Control Chunk Size (%d). Data is:", uchead.info);
-		for (i = 0; i < uchead.info; i++) {
-			t = FCEU_fgetc(fp);
+		/* Same defensive cap as DoMirroring's else-branch: an attacker-
+		 * controlled chunk size shouldn't be able to spin a 4 GiB
+		 * diagnostic dump, and the missing EOF check let FCEU_fgetc
+		 * return -1 forever on a truncated stream. Cap, log, and seek
+		 * past the rest. */
+		uint32_t dump_max = uchead.info < 16 ? uchead.info : 16;
+		FCEU_printf(" Incorrect Control Chunk Size (%u). Data is:", (unsigned)uchead.info);
+		for (i = 0; i < dump_max; i++) {
+			if ((t = FCEU_fgetc(fp)) == EOF)
+				return(0);
 			FCEU_printf(" %02x", t);
 		}
+		if (uchead.info > dump_max
+		    && FCEU_fseek(fp, uchead.info - dump_max, SEEK_CUR) < 0)
+			return(0);
 		FCEU_printf("\n");
 		GameInfo->input[0] = GameInfo->input[1] = SI_GAMEPAD;
 	}
@@ -286,19 +323,25 @@ static int EnableBattery(FCEUFILE *fp) {
 }
 
 static int LoadPRG(FCEUFILE *fp) {
-	int z, t;
+	int z;
+	uint32_t t;
 	z = uchead.ID[3] - '0';
 
 	if (z < 0 || z > 15)
+		return(0);
+	/* uchead.info is uint32_t from the file; reject sizes that would either
+	 * overflow when added below, or that are obviously bogus. The largest
+	 * legitimate single PRG chunk is in the low MiB. Cap at 64 MiB which
+	 * is well above reality but still safe. */
+	if (uchead.info == 0 || uchead.info > (64u << 20))
 		return(0);
 	FCEU_printf(" PRG ROM %d size: %d\n", z, (int)uchead.info);
 	if (malloced[z])
 		free(malloced[z]);
 	t = uchead.info;
-	if (!(malloced[z] = (uint8*)FCEU_malloc(t)))
+	if (!(malloced[z] = (uint8_t*)FCEU_malloc(t)))
 		return(0);
 	mallocedsizes[z] = t;
-	memset(malloced[z] + uchead.info, 0xFF, t - uchead.info);
 	if (FCEU_fread(malloced[z], 1, uchead.info, fp) != uchead.info) {
 		FCEU_printf("Read Error!\n");
 		return(0);
@@ -312,12 +355,35 @@ static int LoadPRG(FCEUFILE *fp) {
 }
 
 static int SetBoardName(FCEUFILE *fp) {
-	if (!(boardname = (uint8*)FCEU_malloc(uchead.info + 1)))
+	/* The subsequent 4-byte memcmp()s for "NES-", "UNL-", "HVC-", "BTL-",
+	 * "BMC-" require the boardname buffer to be at least 4 bytes long.
+	 * A malformed UNIF file can declare a MAPR chunk with size < 4, which
+	 * would otherwise produce a heap out-of-bounds read.
+	 *
+	 * Also cap the upper bound. Real UNIF board names are short (~< 32
+	 * chars). A malformed chunk that declares uchead.info near 0xFFFFFFFF
+	 * causes (uchead.info + 1) to overflow uint32_t back to 0, so
+	 * FCEU_malloc(0) would return a tiny buffer (or NULL) and the
+	 * subsequent FCEU_fread would attempt a 4 GiB write into it - heap
+	 * corruption that ASAN catches as a SEGV in unif.c when the trailing
+	 * boardname[uchead.info] = 0 store dereferences past the buffer. */
+	if (uchead.info < 4 || uchead.info > 256) {
+		FCEU_PrintError(" MAPR chunk size %u out of range; ignoring.\n", (unsigned)uchead.info);
+		return 0;
+	}
+	if (!(boardname = (uint8_t*)FCEU_malloc(uchead.info + 1)))
 		return(0);
-	FCEU_fread(boardname, 1, uchead.info, fp);
+	/* Short reads leave the rest as the zero from FCEU_malloc, so the
+	 * trailing NUL keeps the string well-formed; treat the truncation as
+	 * a parse error rather than letting downstream board lookup match
+	 * a garbage prefix. */
+	if (FCEU_fread(boardname, 1, uchead.info, fp) != uchead.info) {
+		FCEU_PrintError(" MAPR chunk truncated.\n");
+		return(0);
+	}
 	boardname[uchead.info] = 0;
 	/* strip whitespaces */
-	boardname = (uint8*)string_trim_whitespace((char *const)boardname);
+	boardname = (uint8_t*)string_trim_whitespace((char *const)boardname);
 	FCEU_printf(" Board name: %s\n", boardname);
 	sboardname = boardname;
 	if (!memcmp(boardname, "NES-", 4) || !memcmp(boardname, "UNL-", 4) ||
@@ -329,18 +395,20 @@ static int SetBoardName(FCEUFILE *fp) {
 }
 
 static int LoadCHR(FCEUFILE *fp) {
-	int z, t;
+	int z;
+	uint32_t t;
 	z = uchead.ID[3] - '0';
 	if (z < 0 || z > 15)
+		return(0);
+	if (uchead.info == 0 || uchead.info > (64u << 20))
 		return(0);
 	FCEU_printf(" CHR ROM %d size: %d\n", z, (int)uchead.info);
 	if (malloced[16 + z])
 		free(malloced[16 + z]);
 	t = uchead.info;
-	if (!(malloced[16 + z] = (uint8*)FCEU_malloc(t)))
+	if (!(malloced[16 + z] = (uint8_t*)FCEU_malloc(t)))
 		return(0);
 	mallocedsizes[16 + z] = t;
-	memset(malloced[16 + z] + uchead.info, 0xFF, t - uchead.info);
 	if (FCEU_fread(malloced[16 + z], 1, uchead.info, fp) != uchead.info) {
 		FCEU_printf("Read Error!\n");
 		return(0);
@@ -356,7 +424,7 @@ static int LoadCHR(FCEUFILE *fp) {
 #define NO_BUSC 1
 
 struct _unif_db {
-	uint64 partialMD5;
+	uint64_t partialMD5;
 	char *boardname;
 	int submapper;
 	int mirroring;
@@ -373,10 +441,10 @@ static struct _unif_db unif_db[] = {
 
 static void CheckHashInfo(void) {
 	unsigned x = 0;
-	uint64 partialMD5 = 0;
+	uint64_t partialMD5 = 0;
 
 	for (x = 0; x < 8; x++)
-		partialMD5 |= (uint64)UNIFCart.MD5[15 - x] << (x * 8);
+		partialMD5 |= (uint64_t)UNIFCart.MD5[15 - x] << (x * 8);
 
 	x = 0;
 	do {
@@ -386,7 +454,7 @@ static void CheckHashInfo(void) {
 			FCEU_PrintError(" For now, the information will be corrected in RAM.\n");
 			if (unif_db[x].boardname != NULL && strcmp((char*)unif_db[x].boardname, (char*)sboardname) != 0) {
 				FCEU_printf(" Boardname should be set to %s\n", unif_db[x].boardname);
-				sboardname = (uint8*)unif_db[x].boardname;
+				sboardname = (uint8_t*)unif_db[x].boardname;
 			}
 			if (unif_db[x].submapper >= 0 && unif_db[x].submapper != submapper) {
 				FCEU_PrintError(" Submapper should be set to %d\n", unif_db[x].submapper);
@@ -430,10 +498,10 @@ static BMAPPING bmap[] = {
 	{ "43272",                      242, Mapper242_Init,        0 },
 	{ "603-5052",                   238, UNL6035052_Init,       0 },
 	{ "64in1NoRepeat",              314, BMC64in1nr_Init,       0 },
-	{ "70in1",                      236, Mapper236_Init,         0 },
+	{ "70in1",                      236, Mapper236_Init,        0 },
 	{ "70in1B",                     236, Mapper236_Init,        0 },
 	{ "810544-C-A1",                261, BMC810544CA1_Init,     0 },
-	{ "8157",                       301, UNL8157_Init,          0 },
+	{ "8157",                       242, Mapper242_Init,        0 },
 	{ "8237",                       215, UNL8237_Init,          0 },
 	{ "8237A",                      215, UNL8237A_Init,         0 },
 	{ "830118C",                    348, BMC830118C_Init,       0 },
@@ -456,7 +524,7 @@ static BMAPPING bmap[] = {
 	{ "D1038",                       59, BMCD1038_Init,         0 },
 	{ "T3H53",                       59, BMCD1038_Init,         0 },
 	{ "DANCE",                      256, UNLOneBus_Init,        0 },
-	{ "DANCE2000",                  518, UNLD2000_Init,         0 },
+	{ "DANCE2000",                  518, Mapper518_Init,        0 },
 	{ "DREAMTECH01",                521, DreamTech01_Init,      0 },
 	{ "EDU2000",                    329, UNLEDU2000_Init,       0 },
 	{ "EKROM",                        5, EKROM_Init,            0 },
@@ -563,7 +631,7 @@ static BMAPPING bmap[] = {
 	{ "UNROM-512-32",                30, UNROM512_Init,         BMCFLAG_32KCHRR },
 	{ "UOROM",                        2, UNROM_Init,            0 },
 	{ "VRC7",                        85, UNLVRC7_Init,          0 },
-	{ "YOKO",                       264, UNLYOKO_Init,          0 },
+	{ "YOKO",                       264, Mapper264_Init,        0 },
 	{ "COOLBOY",                    268, COOLBOY_Init,          BMCFLAG_256KCHRR },
 	{ "MINDKIDS",                   268, MINDKIDS_Init,         BMCFLAG_256KCHRR },
 	{ "158B",                       258, UNL8237_Init,          0 },
@@ -590,12 +658,12 @@ static BMAPPING bmap[] = {
 	{ "K-3088",                     287, BMCK3088_Init,         0 },
 	{ "FARID_SLROM_8-IN-1",         323, FARIDSLROM8IN1_Init,   0 },
 	{ "830425C-4391T",              320, BMC830425C4391T_Init,  0 },
-	{ "TJ-03",                      341, BMCTJ03_Init,          0 },
+	{ "TJ-03",                      341, Mapper341_Init,        0 },
 	{ "CTC-09",                     335, BMCCTC09_Init,         0 },
 	{ "K-3046",                     336, BMCK3046_Init,         0 },
 	{ "SA005-A",                    338, BMCSA005A_Init,        0 },
 	{ "K-3006",                     339, BMCK3006_Init,         0 },
-	{ "K-3036",                     340, BMCK3036_Init,         0 },
+	{ "K-3036",                     340, Mapper340_Init,        0 },
 	{ "KS7021A",                    525, UNLKS7021A_Init,       0 },
 	{ "KS106C",                 NO_INES, BMCKS106C_Init,        0 }, /* split roms */
 	{ "900218",                     524, BTL900218_Init,        0 },
@@ -651,7 +719,7 @@ static BFMAPPING bfunc[] = {
 	{ NULL, NULL }
 };
 
-int LoadUNIFChunks(FCEUFILE *fp) {
+static int LoadUNIFChunks(FCEUFILE *fp) {
 	int x;
 	int t;
 	for (;; ) {
@@ -701,7 +769,7 @@ static int InitializeBoard(void) {
 				else
 					CHRRAMSize = 8;
                 CHRRAMSize <<= 10;
-				if ((UNIFchrrama = (uint8*)FCEU_malloc(CHRRAMSize))) {
+				if ((UNIFchrrama = (uint8_t*)FCEU_malloc(CHRRAMSize))) {
 					SetupCartCHRMapping(0, UNIFchrrama, CHRRAMSize, 1);
 					AddExState(UNIFchrrama, CHRRAMSize, 0, "CHRR");
 				} else
@@ -746,11 +814,16 @@ static void UNIFGI(int h) {
 
 int UNIFLoad(const char *name, FCEUFILE *fp) {
 	struct md5_context md5;
-	uint64 prg_size_bytes = 0, chr_size_bytes = 0;
+	uint64_t prg_size_bytes = 0, chr_size_bytes = 0;
 	int x = 0;
 
 	FCEU_fseek(fp, 0, SEEK_SET);
-	FCEU_fread(&unhead, 1, 4, fp);
+	/* unhead is a file-scope static; if FCEU_fread reads fewer than 4 bytes
+	 * (e.g. on a malformed empty file), the static would retain whatever
+	 * was left from a previous successful load and the memcmp could
+	 * spuriously succeed. Verify the read first. */
+	if (FCEU_fread(&unhead, 1, 4, fp) != 4)
+		return 0;
 	if (memcmp(&unhead, "UNIF", 4))
 		return 0;
 
@@ -784,12 +857,12 @@ int UNIFLoad(const char *name, FCEUFILE *fp) {
 
 	/* Note: Use rounded size for memory allocations and board mapping */
 
-	if (!(ROM = (uint8*)malloc(UNIF_PRGROMSize))) {
+	if (!(ROM = (uint8_t*)malloc(UNIF_PRGROMSize))) {
 		Cleanup();
 		return 0;
 	}
 	if (UNIF_CHRROMSize) {
-		if (!(VROM = (uint8*)malloc(UNIF_CHRROMSize))) {
+		if (!(VROM = (uint8_t*)malloc(UNIF_CHRROMSize))) {
 			Cleanup();
 			return 0;
 		}

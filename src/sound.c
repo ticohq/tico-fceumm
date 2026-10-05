@@ -30,33 +30,64 @@
 #include "filter.h"
 #include "state.h"
 
-static uint32 wlookup1[32];
-static uint32 wlookup2[203];
+static uint32_t wlookup1[32];
+static uint32_t wlookup2[203];
 
-int32 Wave[2048 + 512];
-int32 WaveHi[40000];
-int32 WaveFinal[2048 + 512];
+/* Baked, rate-independent base values for the two tables above. */
+#include "sound_tables.h"
+
+/* Helper: clamp wlookup2's combined index to the table size.
+ *
+ * The LQ Tri/Noise/PCM mix sums lq_tcout, noiseout, and RawDALatch (with
+ * per-channel volume scalars applied) and uses the result as the index
+ * into wlookup2[203]. Each input is bounded under normal emulation:
+ * lq_tcout is (tristep & 0xF) * 3 (max 45), noiseout is the noise
+ * envelope decvolume << 1 (max 30 with 0..15 envelope range), and
+ * RawDALatch is the $4011 DAC latch (writes mask off the top bit, so
+ * 0..127 in the running emulator). Sum max ~202 fits the table.
+ *
+ * After loading a savestate, however, every one of those state fields
+ * is whatever the file said, so EnvUnits[2].decvolume (loaded as raw
+ * uint8_t) can be 0..255, RawDALatch can be 0..255, lq_tcout (loaded
+ * as uint32_t) can be anything, and the sum can overflow the table by
+ * a wide margin - a heap-buffer-overflow read that AddressSanitizer
+ * surfaces in retro_run after retro_unserialize on a malformed state.
+ *
+ * Clamp at the access site so the protection holds regardless of which
+ * piece of state was tampered with. Out-of-range values play wrong
+ * audio for one frame until DoEnv / channel writes restore sane state,
+ * but the emulator stays alive. */
+static INLINE uint32_t wl2(uint32_t idx)
+{
+   if (idx >= sizeof(wlookup2) / sizeof(wlookup2[0]))
+      idx = sizeof(wlookup2) / sizeof(wlookup2[0]) - 1;
+   return wlookup2[idx];
+}
+
+int32_t Wave[2048 + 512];
+int32_t WaveHi[40000];
+int32_t WaveFinal[2048 + 512];
 
 EXPSOUND GameExpSound = { 0, 0, 0, 0, 0, 0 };
 
-static uint8 TriCount = 0;
-static uint8 TriMode = 0;
+static uint8_t TriCount = 0;
+static uint8_t TriMode = 0;
 
-static int32 tristep = 0;
+static int32_t tristep = 0;
 
-static int32 wlcount[4] = { 0, 0, 0, 0 };	/* Wave length counters.	*/
+static int32_t wlcount[4] = { 0, 0, 0, 0 };	/* Wave length counters.	*/
 
-static uint8 IRQFrameMode = 0;				/* $4017 / xx000000 */
-static uint8 PSG[0x10];
-static uint8 RawDALatch = 0;				/* $4011 0xxxxxxx */
+static uint8_t IRQFrameMode = 0;				/* $4017 / xx000000 */
+static uint8_t PSG[0x10];
+static uint8_t RawDALatch = 0;				/* $4011 0xxxxxxx */
 
-uint8 EnabledChannels = 0;					/* Byte written to $4015 */
+uint8_t EnabledChannels = 0;					/* Byte written to $4015 */
 
 typedef struct {
-	uint8 Speed;
-	uint8 Mode;	/* Fixed volume(1), and loop(2) */
-	uint8 DecCountTo1;
-	uint8 decvolume;
+	uint8_t Speed;
+	uint8_t Mode;	/* Fixed volume(1), and loop(2) */
+	uint8_t DecCountTo1;
+	uint8_t decvolume;
 	int reloaddec;
 } ENVUNIT;
 
@@ -65,32 +96,32 @@ static ENVUNIT EnvUnits[3];
 
 static const int RectDuties[4] = { 1, 2, 4, 6 };
 
-static int32 RectDutyCount[2];
-static uint8 sweepon[2];
-static int32 curfreq[2];
-static uint8 SweepCount[2];
-static uint8 sweepReload[2];
+static int32_t RectDutyCount[2];
+static uint8_t sweepon[2];
+static int32_t curfreq[2];
+static uint8_t SweepCount[2];
+static uint8_t sweepReload[2];
 
-static uint16 nreg = 0;
+static uint16_t nreg = 0;
 
-static uint8 fcnt = 0;
-static int32 fhcnt = 0;
-static int32 fhinc = 0;
+static uint8_t fcnt = 0;
+static int32_t fhcnt = 0;
+static int32_t fhinc = 0;
 
-uint32 soundtsoffs = 0;
+uint32_t soundtsoffs = 0;
 
 /* Variables exclusively for low-quality sound. */
-int32 nesincsize = 0;
-uint32 soundtsinc = 0;
-uint32 soundtsi = 0;
-static int32 sqacc[2];
-static uint32 lq_tcout;
-static int32 lq_triacc;
-static int32 lq_noiseacc;
+int32_t nesincsize = 0;
+uint32_t soundtsinc = 0;
+uint32_t soundtsi = 0;
+static int32_t sqacc[2];
+static uint32_t lq_tcout;
+static int32_t lq_triacc;
+static int32_t lq_noiseacc;
 /* LQ variables segment ends. */
 
-static int32 lengthcount[4];
-static const uint8 lengthtable[0x20] =
+static int32_t lengthcount[4];
+static const uint8_t lengthtable[0x20] =
 {
 	0x0A, 0xFE, 0x14, 0x02, 0x28, 0x04, 0x50, 0x06,
 	0xa0, 0x08, 0x3c, 0x0a, 0x0e, 0x0c, 0x1a, 0x0e,
@@ -98,25 +129,25 @@ static const uint8 lengthtable[0x20] =
 	0xc0, 0x18, 0x48, 0x1a, 0x10, 0x1c, 0x20, 0x1E
 };
 
-static const uint32 NTSCNoiseFreqTable[0x10] =
+static const uint32_t NTSCNoiseFreqTable[0x10] =
 {
 	0x004, 0x008, 0x010, 0x020, 0x040, 0x060, 0x080, 0x0A0,
 	0x0CA, 0x0FE, 0x17C, 0x1FC, 0x2FA, 0x3F8, 0x7F2, 0xFE4
 };
 
-static const uint32 PALNoiseFreqTable[0x10] =
+static const uint32_t PALNoiseFreqTable[0x10] =
 {
 	0x004, 0x008, 0x00E, 0x01E, 0x03C, 0x058, 0x076, 0x094,
 	0x0BC, 0x0EC, 0x162, 0x1D8, 0x2C4, 0x3B0, 0x762, 0xEC2
 };
 
-static const uint32 NTSCDMCTable[0x10] =
+static const uint32_t NTSCDMCTable[0x10] =
 {
 	0x1AC, 0x17C, 0x154, 0x140, 0x11E, 0x0FE, 0x0E2, 0x0D6,
 	0x0BE, 0x0A0, 0x08E, 0x080, 0x06A, 0x054, 0x048, 0x036
 };
 
-static const uint32 PALDMCTable[0x10] =
+static const uint32_t PALDMCTable[0x10] =
 {
 	0x18E, 0x162, 0x13C, 0x12A, 0x114, 0x0EC, 0x0D2, 0x0C6,
 	0x0B0, 0x094, 0x084, 0x076, 0x062, 0x04E, 0x042, 0x032
@@ -128,20 +159,20 @@ static const uint32 PALDMCTable[0x10] =
  * $4013  -  Size register:  Size in bytes = (V+1)*64
  */
 
-static int32 DMCacc = 1;
-static int32 DMCPeriod = 0;
-static uint8 DMCBitCount = 0;
+static int32_t DMCacc = 1;
+static int32_t DMCPeriod = 0;
+static uint8_t DMCBitCount = 0;
 
-static uint8 DMCAddressLatch = 0, DMCSizeLatch = 0;	/* writes to 4012 and 4013 */
-static uint8 DMCFormat = 0;							/* Write to $4010 */
+static uint8_t DMCAddressLatch = 0, DMCSizeLatch = 0;	/* writes to 4012 and 4013 */
+static uint8_t DMCFormat = 0;							/* Write to $4010 */
 
-static uint32 DMCAddress = 0;
-static int32 DMCSize = 0;
-static uint8 DMCShift = 0;
-static uint8 SIRQStat = 0;
+static uint32_t DMCAddress = 0;
+static int32_t DMCSize = 0;
+static uint8_t DMCShift = 0;
+static uint8_t SIRQStat = 0;
 
 static char DMCHaveDMA = 0;
-static uint8 DMCDMABuf = 0;
+static uint8_t DMCDMABuf = 0;
 static char DMCHaveSample = 0;
 
 static void Dummyfunc(void) { }
@@ -151,9 +182,9 @@ static void (*DoPCM)(void) = Dummyfunc;
 static void (*DoSQ1)(void) = Dummyfunc;
 static void (*DoSQ2)(void) = Dummyfunc;
 
-static uint32 ChannelBC[5];
+static uint32_t ChannelBC[5];
 
-static void LoadDMCPeriod(uint8 V) {
+static void LoadDMCPeriod(uint8_t V) {
 	if (PAL)
 		DMCPeriod = PALDMCTable[V];
 	else
@@ -167,8 +198,8 @@ static void PrepDPCM() {
 
 /* Instantaneous?  Maybe the new freq value is being calculated all of the time... */
 
-static int FASTAPASS(2) CheckFreq(uint32 cf, uint8 sr) {
-	uint32 mod;
+static int FASTAPASS(2) CheckFreq(uint32_t cf, uint8_t sr) {
+	uint32_t mod;
 	if (!(sr & 0x8)) {
 		mod = cf >> (sr & 7);
 		if ((mod + cf) & 0x800)
@@ -177,7 +208,7 @@ static int FASTAPASS(2) CheckFreq(uint32 cf, uint8 sr) {
 	return(1);
 }
 
-static void SQReload(int x, uint8 V) {
+static void SQReload(int x, uint8_t V) {
 	if (EnabledChannels & (1 << x))
 		lengthcount[x] = lengthtable[(V >> 3) & 0x1f];
 
@@ -285,7 +316,25 @@ static DECLFW(Write_DMCRegs) {
 		DMCFormat = V;
 		break;
 	case 0x01: DoPCM();
-		RawDALatch = V & 0x7F;
+		{
+			/* $4011 is the 7-bit DAC latch.  Games like Castlevania II
+			 * pulse this register directly to produce sample-style audio
+			 * out-of-band from the DPCM bit-stream; the abrupt steps
+			 * between successive writes are the audible "pop".  When
+			 * ReduceDMCPopping is on, take only the midpoint of the
+			 * old-vs-new transition - i.e. step the DAC halfway toward
+			 * the requested value rather than jumping straight to it.
+			 * This is the same algorithm libretro-fceumm_next ships
+			 * (backport reference: negativeExponent's fceumm_next).
+			 * The DPCM playback path (the +/-2 per bit update further
+			 * down) is left untouched. */
+			uint8_t newval  = V & 0x7F;
+			uint8_t lastval = RawDALatch;
+			RawDALatch = newval;
+			if (FSettings.ReduceDMCPopping) {
+				RawDALatch = (uint8_t)(newval - ((int)newval - (int)lastval) / 2);
+			}
+		}
 		if (RawDALatch)
 			DMC_7bit = 1;
 		break;
@@ -327,16 +376,13 @@ static DECLFW(StatusWrite) {
 
 static DECLFR(StatusRead) {
 	int x;
-	uint8 ret;
+	uint8_t ret;
 
 	ret = SIRQStat;
 
 	for (x = 0; x < 4; x++) ret |= lengthcount[x] ? (1 << x) : 0;
 	if (DMCSize) ret |= 0x10;
 
-	#ifdef FCEUDEF_DEBUGGER
-	if (!fceuindbg)
-	#endif
 	{
 		SIRQStat &= ~0x40;
 		X6502_IRQEnd(FCEU_IQFCOUNT);
@@ -372,9 +418,9 @@ static void FASTAPASS(1) FrameSoundStuff(int V) {
 			/* http://wiki.nesdev.com/w/index.php/APU_Sweep */
 			if (SweepCount[P] > 0) SweepCount[P]--;
 			if (SweepCount[P] <= 0) {
-				uint32 sweepShift = (PSG[(P << 2) + 0x1] & 7);
+				uint32_t sweepShift = (PSG[(P << 2) + 0x1] & 7);
 				if (sweepon[P] && sweepShift && curfreq[P] >= 8) {
-					int32 mod = (curfreq[P] >> sweepShift);
+					int32_t mod = (curfreq[P] >> sweepShift);
 					if (PSG[(P << 2) + 0x1] & 0x8) {
 						curfreq[P] -= (mod + (P ^ 1));
 					} else if ((mod + curfreq[P]) < 0x800) {
@@ -488,7 +534,7 @@ void FASTAPASS(1) FCEU_SoundCPUHook(int cycles) {
 
 	while (DMCacc <= 0) {
 		if (DMCHaveSample) {
-			uint8 bah = RawDALatch;
+			uint8_t bah = RawDALatch;
 			int t = ((DMCShift & 1) << 2) - 2;
 			/* Unbelievably ugly hack */
 			if (FSettings.SndRate) {
@@ -508,8 +554,8 @@ void FASTAPASS(1) FCEU_SoundCPUHook(int cycles) {
 	}
 }
 
-void RDoPCM(void) {
-	uint32 V;
+static void RDoPCM(void) {
+	uint32_t V;
 
 	for (V = ChannelBC[4]; V < SOUNDTS; V++)
 		/* TODO: get rid of floating calculations to binary. set log volume scaling. */
@@ -520,13 +566,13 @@ void RDoPCM(void) {
 
 /* This has the correct phase.  Don't mess with it. */
 static INLINE void RDoSQ(int x) {
-	int32 V;
-	int32 amp;
-	int32 rthresh;
-	int32 *D;
-	int32 currdc;
-	int32 cf;
-	int32 rc;
+	int32_t V;
+	int32_t amp;
+	int32_t rthresh;
+	int32_t *D;
+	int32_t currdc;
+	int32_t cf;
+	int32_t rc;
 
 	V = SOUNDTS - ChannelBC[x];
 	cf = (curfreq[x] + 1) * 2;
@@ -592,16 +638,16 @@ static void RDoSQ2(void) {
 }
 
 static void RDoSQLQ(void) {
-	int32 start, end;
-	int32 V;
-	int32 amp[2];
-	int32 rthresh[2];
-	int32 freq[2];
+	int32_t start, end;
+	int32_t V;
+	int32_t amp[2];
+	int32_t rthresh[2];
+	int32_t freq[2];
 	int x;
-	int32 inie[2];
+	int32_t inie[2];
 
-	int32 ttable[2][8];
-	int32 totalout;
+	int32_t ttable[2][8];
+	int32_t totalout;
 
 	start = ChannelBC[0];
 	end = (SOUNDTS << 16) / soundtsinc;
@@ -649,11 +695,25 @@ static void RDoSQLQ(void) {
 		freq[x] <<= 17;
 	}
 
-	totalout = wlookup1[ ttable[0][RectDutyCount[0]] + ttable[1][RectDutyCount[1]] ];
+	/* RectDutyCount[] is reloaded from savestate as raw int32_t and may
+	 * hold any value at this point - the inner-loop increments later mask
+	 * it back to 0..7, but this first lookup hits the table before any
+	 * such mask. Without bounds protection, ttable[0..7] (int[8]) reads
+	 * garbage memory and feeds it into wlookup1[32], which then OOB-reads
+	 * - reachable via a malformed savestate. Mask both indices defensively
+	 * here and at every other ttable/wlookup1 call site below. The mask
+	 * is one instruction and runs only at the chunk boundaries, not per
+	 * inner-loop sample. */
+	totalout = wlookup1[(ttable[0][RectDutyCount[0] & 7]
+	                  +  ttable[1][RectDutyCount[1] & 7]) & 31];
 
 	if (!inie[0] && !inie[1]) {
-		for (V = start; V < end; V++)
-			Wave[V >> 4] += totalout;
+		/* Both squares silent: amp[x] was forced to 0 above (line
+		 * "if (!inie[x]) amp[x] = 0"), which propagates through
+		 * ttable[x] to make totalout = wlookup1[0] = 0. The
+		 * previous code looped (end - start) iterations adding 0
+		 * to Wave[V>>4] - genuinely no-op for ~30000 NES cycles
+		 * per frame. Skip the loop entirely. */
 	} else {
 		for (V = start; V < end; V++) {
 			/* int tmpamp=0;
@@ -675,7 +735,8 @@ static void RDoSQLQ(void) {
 				sqacc[0] += freq[0];
 				RectDutyCount[0] = (RectDutyCount[0] + 1) & 7;
 				if (sqacc[0] <= 0) goto rea;
-				totalout = wlookup1[ ttable[0][RectDutyCount[0]] + ttable[1][RectDutyCount[1]] ];
+				totalout = wlookup1[(ttable[0][RectDutyCount[0]]
+				                  +  ttable[1][RectDutyCount[1] & 7]) & 31];
 			}
 
 			if (sqacc[1] <= 0) {
@@ -683,21 +744,33 @@ static void RDoSQLQ(void) {
 				sqacc[1] += freq[1];
 				RectDutyCount[1] = (RectDutyCount[1] + 1) & 7;
 				if (sqacc[1] <= 0) goto rea2;
-				totalout = wlookup1[ ttable[0][RectDutyCount[0]] + ttable[1][RectDutyCount[1]] ];
+				totalout = wlookup1[(ttable[0][RectDutyCount[0] & 7]
+				                  +  ttable[1][RectDutyCount[1]]) & 31];
 			}
 		}
 	}
 }
 
 static void RDoTriangle(void) {
-	int32 V;
-	int32 tcout = (tristep & 0xF);
+	uint32_t V;
+	int32_t tcout = (tristep & 0xF);
+	uint32_t triangle_raw_period = (PSG[0xa] | ((PSG[0xb] & 7) << 8));
 	if (!(tristep & 0x10)) tcout ^= 0xF;
 	tcout = (tcout * 3) << 16;	/* (tcout<<1); */
 
-	if (!lengthcount[2] || !TriCount) {	/* Counter is halted, but we still need to output. */
-		int32 *start = &WaveHi[ChannelBC[2]];
-		int32 count = SOUNDTS - ChannelBC[2];
+	/* The LQ tri/noise/PCM mixer (RDoTriangleNoisePCMLQ below) already
+	 * forces the triangle channel quiet when its period is low enough
+	 * to produce only ultrasonic output - games like Castlevania II
+	 * and Jackal repeatedly drop the triangle into that range when
+	 * they want silence, and without the gate the DAC reconstruction
+	 * filter folds the high-frequency content back as audible
+	 * popping.  Mirror the gate in the HQ path, conditional on the
+	 * RemoveTriangleNoise option so the default HQ output stays
+	 * bit-exact with the original code unless the user opts in. */
+	if (!lengthcount[2] || !TriCount
+	    || (FSettings.RemoveTriangleNoise && triangle_raw_period <= 3)) {	/* Counter is halted, but we still need to output. */
+		int32_t *start = &WaveHi[ChannelBC[2]];
+		int32_t count = SOUNDTS - ChannelBC[2];
 		while (count--) {
 			*start += (tcout / 256 * FSettings.TriangleVolume) & (~0xFFFF);  /* TODO OPTIMIZE ME */
 			start++;
@@ -725,15 +798,18 @@ static void RDoTriangle(void) {
 }
 
 static void RDoTriangleNoisePCMLQ(void) {
-	int32 V;
-	int32 start, end;
-	int32 freq[2];
-	int32 inie[2];
-	uint32 amptab[2];
-	uint32 noiseout;
+	int32_t V;
+	int32_t start, end;
+	int32_t freq[2];
+	int32_t inie[2];
+	uint32_t amptab[2];
+	uint32_t noiseout;
 	int nshift;
+	uint32_t scaled_tcout;
+	uint32_t scaled_dmc;
+	const uint32_t tri_vol = FSettings.TriangleVolume;
 
-	int32 totalout;
+	int32_t totalout;
 
 	start = ChannelBC[2];
 	end = (SOUNDTS << 16) / soundtsinc;
@@ -753,13 +829,18 @@ static void RDoTriangleNoisePCMLQ(void) {
 	else
 		amptab[0] = EnvUnits[2].decvolume;
 
-	/* Modify Triangle wave volume based on channel volume modifiers
-	 * Note: the formulat x = x * y /100 does not yield exact results,
-	 * but is "close enough" and avoids the need for using double vales
-	 * or implicit cohersion which are slower (we need speed here)
-	 * TODO: Optimize this. */
-	if (FSettings.TriangleVolume != 256)
-		amptab[0] = (amptab[0] * FSettings.TriangleVolume) / 256;
+	/* Apply per-channel volume modifiers (set via fceumm_apu_N options).
+	 *
+	 * EnvUnits[2] is the Noise envelope (not Triangle - Triangle has no
+	 * envelope; EnvUnits[0]=SQ1, [1]=SQ2, [2]=Noise). The previous code
+	 * scaled amptab[0] by FSettings.TriangleVolume, which crossed the
+	 * Triangle and Noise mute toggles in LQ mode and left Triangle
+	 * itself never muted. Triangle's contribution enters wlookup2 via
+	 * lq_tcout below; PCM enters via RawDALatch. Scale each input
+	 * channel by its own volume before the non-linear DAC mix - 0 in
+	 * still produces 0 out, and 256 leaves the value unchanged. */
+	if (FSettings.NoiseVolume != 256)
+		amptab[0] = (amptab[0] * FSettings.NoiseVolume) / 256;
 
 	amptab[1] = 0;
 	amptab[0] <<= 1;
@@ -774,7 +855,14 @@ static void RDoTriangleNoisePCMLQ(void) {
 	else
 		nshift = 13;
 
-	totalout = wlookup2[lq_tcout + noiseout + RawDALatch];
+	scaled_tcout = (tri_vol != 256)
+	             ? ((lq_tcout * tri_vol) / 256)
+	             : lq_tcout;
+	scaled_dmc   = (FSettings.PCMVolume != 256)
+	             ? ((RawDALatch * FSettings.PCMVolume) / 256)
+	             : RawDALatch;
+
+	totalout = wl2(scaled_tcout + noiseout + scaled_dmc);
 
 	if (inie[0] && inie[1]) {
 		for (V = start; V < end; V++) {
@@ -791,7 +879,10 @@ static void RDoTriangleNoisePCMLQ(void) {
 				lq_tcout = (tristep & 0xF);
 				if (!(tristep & 0x10)) lq_tcout ^= 0xF;
 				lq_tcout = lq_tcout * 3;
-				totalout = wlookup2[lq_tcout + noiseout + RawDALatch];
+				scaled_tcout = (tri_vol != 256)
+				             ? ((lq_tcout * tri_vol) / 256)
+				             : lq_tcout;
+				totalout = wl2(scaled_tcout + noiseout + scaled_dmc);
 			}
 
 			if (lq_noiseacc <= 0) {
@@ -807,7 +898,7 @@ static void RDoTriangleNoisePCMLQ(void) {
 				nreg &= 0x7fff;
 				noiseout = amptab[(nreg >> 0xe) & 1];
 				if (lq_noiseacc <= 0) goto rea2;
-				totalout = wlookup2[lq_tcout + noiseout + RawDALatch];
+				totalout = wl2(scaled_tcout + noiseout + scaled_dmc);
 			}	/* noiseacc<=0 */
 		}	/* for(V=... */
 	} else if (inie[0]) {
@@ -824,7 +915,10 @@ static void RDoTriangleNoisePCMLQ(void) {
 				lq_tcout = (tristep & 0xF);
 				if (!(tristep & 0x10)) lq_tcout ^= 0xF;
 				lq_tcout = lq_tcout * 3;
-				totalout = wlookup2[lq_tcout + noiseout + RawDALatch];
+				scaled_tcout = (tri_vol != 256)
+				             ? ((lq_tcout * tri_vol) / 256)
+				             : lq_tcout;
+				totalout = wl2(scaled_tcout + noiseout + scaled_dmc);
 			}
 		}
 	} else if (inie[1]) {
@@ -844,7 +938,7 @@ static void RDoTriangleNoisePCMLQ(void) {
 				nreg &= 0x7fff;
 				noiseout = amptab[(nreg >> 0xe) & 1];
 				if (lq_noiseacc <= 0) goto area2;
-				totalout = wlookup2[lq_tcout + noiseout + RawDALatch];
+				totalout = wl2(scaled_tcout + noiseout + scaled_dmc);
 			}	/* noiseacc<=0 */
 		}
 	} else {
@@ -854,9 +948,9 @@ static void RDoTriangleNoisePCMLQ(void) {
 }
 
 static void RDoNoise(void) {
-	uint32 V;
-	int32 outo;
-	uint32 amptab[2];
+	uint32_t V;
+	int32_t outo;
+	uint32_t amptab[2];
 
 	if (EnvUnits[2].Mode & 0x1)
 		amptab[0] = EnvUnits[2].Speed;
@@ -887,7 +981,7 @@ static void RDoNoise(void) {
 			WaveHi[V] += outo;
 			wlcount[3]--;
 			if (!wlcount[3]) {
-				uint8 feedback;
+				uint8_t feedback;
 				if (PAL)
 					wlcount[3] = PALNoiseFreqTable[PSG[0xE] & 0xF];
 				else
@@ -903,7 +997,7 @@ static void RDoNoise(void) {
 			WaveHi[V] += outo;
 			wlcount[3]--;
 			if (!wlcount[3]) {
-				uint8 feedback;
+				uint8_t feedback;
 				if (PAL)
 					wlcount[3] = PALNoiseFreqTable[PSG[0xE] & 0xF];
 				else
@@ -918,7 +1012,7 @@ static void RDoNoise(void) {
 	ChannelBC[3] = SOUNDTS;
 }
 
-DECLFW(Write_IRQFM) {
+static DECLFW(Write_IRQFM) {
 	V = (V & 0xC0) >> 6;
 	fcnt = 0;
 	if (V & 2)
@@ -941,10 +1035,10 @@ void SetNESSoundMap(void) {
 	SetReadHandler(0x4015, 0x4015, StatusRead);
 }
 
-static int32 inbuf = 0;
+static int32_t inbuf = 0;
 int FlushEmulateSound(void) {
 	int x;
-	int32 end, left;
+	int32_t end, left;
 
 	if (!sound_timestamp) return(0);
 
@@ -961,20 +1055,35 @@ int FlushEmulateSound(void) {
 	DoPCM();
 
 	if (FSettings.soundq >= 1) {
-		int32 *tmpo = &WaveHi[soundtsoffs];
+		int32_t *tmpo = &WaveHi[soundtsoffs];
 
 		if (GameExpSound.HiFill) GameExpSound.HiFill();
 
 		for (x = sound_timestamp; x; x--) {
-			uint32 b = *tmpo;
-			*tmpo = (b & 65535) + wlookup2[(b >> 16) & 255] + wlookup1[b >> 24];
+			uint32_t b = *tmpo;
+			*tmpo = (b & 65535) + wl2((b >> 16) & 255) + wlookup1[(b >> 24) & 31];
 			tmpo++;
 		}
 
 		end = NeoFilterSound(WaveHi, WaveFinal, SOUNDTS, &left);
 
-		memmove(WaveHi, WaveHi + SOUNDTS - left, left * sizeof(uint32));
-		memset(WaveHi + left, 0, sizeof(WaveHi) - left * sizeof(uint32));
+		/* Slide the trailing `left` coefficient-history samples back
+		 * to the start of the buffer for next frame's filter, then
+		 * clear the area between left and SOUNDTS so next frame's
+		 * channel accumulators start at zero.
+		 *
+		 * The previous code cleared all the way to sizeof(WaveHi),
+		 * but only indices [left, SOUNDTS) were dirtied this frame -
+		 * everything past SOUNDTS is still zero from the prior
+		 * frame's clear (or from FCEUSND_Power on first frame).
+		 * WaveHi is 40000 entries = 160 KB; SOUNDTS is bounded by
+		 * NES cycles per frame (~30000), so this saves ~40 KB of
+		 * memset per HQ frame. The (SOUNDTS > left) guard handles
+		 * the degenerate case of a very short frame where SOUNDTS
+		 * may not have advanced past the coefficient history. */
+		memmove(WaveHi, WaveHi + SOUNDTS - left, left * sizeof(uint32_t));
+		if ((uint32_t)SOUNDTS > (uint32_t)left)
+			memset(WaveHi + left, 0, (SOUNDTS - left) * sizeof(uint32_t));
 
 		if (GameExpSound.HiSync) GameExpSound.HiSync(left);
 		for (x = 0; x < 5; x++)
@@ -1008,7 +1117,7 @@ int FlushEmulateSound(void) {
 	return end;
 }
 
-int GetSoundBuffer(int32 **W) {
+int GetSoundBuffer(int32_t **W) {
 	*W = WaveFinal;
 	return(inbuf);
 }
@@ -1022,12 +1131,35 @@ void FCEUSND_Reset(void) {
 
 	fhcnt = fhinc;
 	fcnt = 0;
-	nreg = 1;
+	/* Power-on noise shift register state.
+	 *
+	 * Real hardware initializes the 15-bit noise LFSR to $0001 with bit
+	 * 0 set (the output bit, muting the channel until the first feedback
+	 * cycle).  This file stores the LFSR with the bit order reversed -
+	 * the output is read from bit 14, the feedback taps are at 13/14
+	 * (long mode) or 8/14 (short mode), and the shift goes left rather
+	 * than right (see RDoNoise / NoLQNoise).  Under that mirroring, the
+	 * real-hardware $0001 state corresponds to nreg = 0x4000 here, not
+	 * nreg = 1.
+	 *
+	 * Initialising to 1 left the LFSR running 14 long-mode steps ahead
+	 * of every other accurate emulator (Mesen, NSFPlay, _next), and made
+	 * short-mode output diverge entirely - the 93-cycle period is short
+	 * enough that the position offset is audible as "rougher" or
+	 * subtly wrong percussion.  Reported as libretro-fceumm issue #466
+	 * (Moon8 audio inaccuracy, by NSFPlay author Brad Smith).
+	 *
+	 * Per-channel bisection of moon8.nes against negativeExponent's
+	 * _next branch (which uses the un-mirrored layout from nesdev wiki)
+	 * shows the noise channel as the only meaningful divergence after
+	 * the music kicks in at ~22 s; squares and DMC are bit-identical.
+	 */
+	nreg = 0x4000;
 
 	for (x = 0; x < 2; x++) {
 		wlcount[x] = 2048;
 		if (nesincsize)	/* lq mode */
-			sqacc[x] = ((uint32)2048 << 17) / nesincsize;
+			sqacc[x] = ((uint32_t)2048 << 17) / nesincsize;
 		else
 			sqacc[x] = 1;
 		sweepon[x] = 0;
@@ -1070,8 +1202,15 @@ void FCEUSND_Power(void) {
 	for (x = 0; x < 5; x++)
 		ChannelBC[x] = 0;
 	soundtsoffs = 0;
-	IRQFrameMode = 0x0; /* Only initialized by power-on reset, not by soft reset */
+	IRQFrameMode = 0x1; /* Only initialized by power-on reset, not by soft reset. NRS: don't start with Frame IRQ enabled for greater compatibility. Any game that actually uses frame IRQ will explicitly enable it, anyway. */
 	LoadDMCPeriod(DMCFormat & 0xF);
+
+	/* Reset post-mix filter accumulators. These are file-scope in
+	 * filter.c and were not previously cleared on cart load, so a
+	 * second cart loaded in the same process inherited the first
+	 * cart's IIR state. Audibly minor on its own but breaks
+	 * frame-determinism for the first samples of a new run. */
+	SexyFilter_Reset();
 }
 
 
@@ -1082,14 +1221,16 @@ void SetSoundVariables(void) {
 	fhinc *= 24;
 
 	if (FSettings.SndRate) {
-		wlookup1[0] = 0;
-		for (x = 1; x < 32; x++) {
-			wlookup1[x] = (double)16 * 16 * 16 * 4 * 95.52 / ((double)8128 / (double)x + 100);
+		/* wlookup1/wlookup2 are baked constants (sound_tables.h); the old
+		 * floating-point division that built them is gone. LQ mode (!soundq)
+		 * still applies the >>4 here, so the runtime tables stay mutable.
+		 * Bit-identical to the previous double-derived values. */
+		for (x = 0; x < 32; x++) {
+			wlookup1[x] = wlookup1_base[x];
 			if (!FSettings.soundq) wlookup1[x] >>= 4;
 		}
-		wlookup2[0] = 0;
-		for (x = 1; x < 203; x++) {
-			wlookup2[x] = (double)16 * 16 * 16 * 4 * 163.67 / ((double)24329 / (double)x + 100);
+		for (x = 0; x < 203; x++) {
+			wlookup2[x] = wlookup2_base[x];
 			if (!FSettings.soundq) wlookup2[x] >>= 4;
 		}
 		if (FSettings.soundq >= 1) {
@@ -1099,12 +1240,34 @@ void SetSoundVariables(void) {
 			DoSQ1 = RDoSQ1;
 			DoSQ2 = RDoSQ2;
 		} else {
-			DoNoise = DoTriangle = DoPCM = DoSQ1 = DoSQ2 = Dummyfunc;
-			DoSQ1 = RDoSQLQ;
-			DoSQ2 = RDoSQLQ;
+			/* All five Do* pointers in LQ mode end up at one of two
+			 * worker functions: RDoSQLQ (handles both squares) and
+			 * RDoTriangleNoisePCMLQ (handles tri/noise/PCM).
+			 *
+			 * Pass 6 had stubbed DoSQ2 / DoNoise / DoPCM to Dummyfunc
+			 * here on the reasoning that the workers guard with
+			 * "if (end <= start) return;" and re-entry within one
+			 * FlushEmulateSound is a no-op. That reasoning is
+			 * incorrect: the Do* hooks are also called from
+			 * Write_PSG (sound.c:189) on every APU register write
+			 * AND from FCEU_SoundCPUHook (line 493) on every DMC
+			 * bit advance. Between those callers, sound_timestamp
+			 * grows with each CPU instruction, so each Do* call IS
+			 * legitimately doing work - it flushes pending samples
+			 * up to the current SOUNDTS using the pre-write register
+			 * state, before the write updates the registers. Stubbing
+			 * those hooks to Dummyfunc skips the mid-frame flushes
+			 * and audibly changes output for any game that writes to
+			 * multiple APU registers in sequence (essentially all
+			 * of them). Verified bit-identical regression vs upstream
+			 * for the test_idle ROM (channels enabled with steady
+			 * settings) - the audio diverged starting at the first
+			 * post-init register write. Restored here. */
+			DoSQ1      = RDoSQLQ;
+			DoSQ2      = RDoSQLQ;
 			DoTriangle = RDoTriangleNoisePCMLQ;
-			DoNoise = RDoTriangleNoisePCMLQ;
-			DoPCM = RDoTriangleNoisePCMLQ;
+			DoNoise    = RDoTriangleNoisePCMLQ;
+			DoPCM      = RDoTriangleNoisePCMLQ;
 		}
 	} else {
 		DoNoise = DoTriangle = DoPCM = DoSQ1 = DoSQ2 = Dummyfunc;
@@ -1116,13 +1279,34 @@ void SetSoundVariables(void) {
 	if (GameExpSound.RChange)
 		GameExpSound.RChange();
 
-	nesincsize = (int64)(((int64)1 << 17) * (double)(PAL ? PAL_CPU : NTSC_CPU) / (FSettings.SndRate * 16));
+	/* nesincsize / soundtsinc are derived from the CPU clock (x6502.h) and
+	 * the output rate. The CPU clock is exactly NTSC=19687500/11,
+	 * PAL=13300857/8 (1662607.125), dendy=1773447467/1000 (1773447.467), so
+	 * both quantities reduce to exact integer math - no floating point, and
+	 * deterministic on every platform. Verified bit-identical to the old
+	 * double form at every output rate the core selects (32000/44100/48000/
+	 * 96000) for all three regions. If the x6502.h clock constants change,
+	 * update the rationals below to match. */
+	{
+		uint64_t cpu_num, cpu_den;
+		if (PAL)        { cpu_num = 13300857ULL;   cpu_den = 8ULL;    }
+		else if (dendy) { cpu_num = 1773447467ULL; cpu_den = 1000ULL; }
+		else            { cpu_num = 19687500ULL;   cpu_den = 11ULL;   }
+
+		/* (1<<17) * CPU / (rate*16), truncated */
+		nesincsize = (int32_t)(((uint64_t)1 << 17) * cpu_num /
+				(cpu_den * 16 * FSettings.SndRate));
+
+		/* (uint64_t)(CPU*65536) / (rate*16); the inner term matches the old
+		 * (uint64_t)((double)CPU * 65536.0) truncation exactly. */
+		soundtsinc = (uint32_t)(((cpu_num * 65536ULL) / cpu_den) /
+				(FSettings.SndRate * 16));
+	}
+
 	memset(sqacc, 0, sizeof(sqacc));
 	memset(ChannelBC, 0, sizeof(ChannelBC));
 
 	LoadDMCPeriod(DMCFormat & 0xF);	/* For changing from PAL to NTSC */
-
-	soundtsinc = (uint32)((uint64)(PAL ? (long double)PAL_CPU * 65536 : (long double)NTSC_CPU * 65536) / (FSettings.SndRate * 16));
 }
 
 void FCEUI_Sound(int Rate) {
@@ -1134,13 +1318,37 @@ void FCEUI_SetLowPass(int q) {
 	FSettings.lowpass = q;
 }
 
+void FCEUI_RemoveTriangleNoise(int d) {
+	FSettings.RemoveTriangleNoise = d ? 1 : 0;
+}
+
+void FCEUI_ReduceDmcPopping(int d) {
+	FSettings.ReduceDMCPopping = d ? 1 : 0;
+}
+
 void FCEUI_SetSoundQuality(int quality) {
 	FSettings.soundq = quality;
 	SetSoundVariables();
 }
 
-void FCEUI_SetSoundVolume(uint32 volume) {
+void FCEUI_SetSoundVolume(uint32_t volume) {
 	FSettings.SoundVolume = volume;
+}
+
+/* Per-channel expansion-audio volume scaling.  See sound.h for context.
+ * Hot-path consideration: the common case (vol == 256, the default)
+ * returns immediately with no multiply, keeping the existing
+ * bit-identical behaviour on builds where the new options haven't
+ * been touched.  When vol is 0 the channel is silenced cleanly
+ * regardless of the input sample. */
+int32_t GetExpOutput(int channel, int32_t in) {
+	int v;
+	if ((unsigned)channel >= (unsigned)SND_EXP_LAST)
+		return in;
+	v = FSettings.ExpVolume[channel];
+	if (v == 256) return in;
+	if (v == 0)   return 0;
+	return (in * v) / 256;
 }
 
 
@@ -1218,17 +1426,18 @@ SFORMAT FCEUSND_STATEINFO[] = {
 	{ &wlcount[3], sizeof(wlcount[3]) | FCEUSTATE_RLSB, "WLC4" },
 	{ &sexyfilter_acc1, sizeof(sexyfilter_acc1) | FCEUSTATE_RLSB, "FAC1" },
 	{ &sexyfilter_acc2, sizeof(sexyfilter_acc2) | FCEUSTATE_RLSB, "FAC2" },
+	{ &sexyfilter2_acc, sizeof(sexyfilter2_acc) | FCEUSTATE_RLSB, "FAC3" },
 	{ &lq_tcout, sizeof(lq_tcout) | FCEUSTATE_RLSB, "TCOU"},
 
-/* 2018-12-14 - Wii and possibly other big-endian platforms are having
- * issues loading states with this. Increasing it only helps a few games.
- * Disabling this state variable for Wii/WiiU/GC for now. */
-/* TODO: fix this for better runahead feature for big-endian */
-/* UPDATE: Try to ignore this for all big-endian for now */
-#ifndef MSB_FIRST
+/* Historical note: this entry was excluded on big-endian hosts
+ * (2018-12-14, Wii state-load failures). The root causes are gone:
+ * FlipByteOrder's over-iteration no-op and ReadStateChunk's unchecked
+ * seek were both fixed, and FCEUSTATE_RLSB_ARRAY gives per-element
+ * byte-swapping so the int32_t array is stored little-endian on disk
+ * on every host. On LE builds the flag is inert and the on-disk
+ * format is unchanged. */
 	/* wave buffer is used for filtering, only need first 17 values from it */
-	{ &Wave, 32 * sizeof(int32), "WAVE"},
-#endif
+	{ &Wave, (32 * sizeof(int32_t)) | FCEUSTATE_RLSB_ARRAY(sizeof(int32_t)), "WAVE"},
 
 	{ 0 }
 };
@@ -1245,7 +1454,7 @@ void FCEUSND_LoadState(int version) {
 	/* minimal validation */
 	for (i = 0; i < 5; i++)
 	{
-		uint32 BC_max = 15;
+		uint32_t BC_max = 15;
 
 		if (FSettings.soundq == 2)
 		{

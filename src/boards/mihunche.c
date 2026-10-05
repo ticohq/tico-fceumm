@@ -20,11 +20,11 @@
 
 #include "mapinc.h"
 
-static uint16 latche;
+static uint16_t latche;
 
 static SFORMAT StateRegs[] =
 {
-	{ &latche, 2, "LATC" },
+	{ &latche, 2 | FCEUSTATE_RLSB, "LATC" },
 	{ 0 }
 };
 

@@ -23,7 +23,7 @@
  
 #include "mapinc.h"
 
-static uint8 latch;
+static uint8_t latch;
 
 static void Mapper437_Sync(void) {	
 	setprg16(0x8000, latch);
@@ -33,7 +33,7 @@ static void Mapper437_Sync(void) {
 }
 
 static DECLFW(Mapper437_WriteOuterBank) {
-	latch =latch &7 | A <<3;
+	latch =latch &7 | V <<3;
 	Mapper437_Sync();
 }
 

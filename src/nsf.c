@@ -23,6 +23,7 @@
 #include <string.h>
 #include <math.h>
 
+#include <compat/strl.h>
 #include "fceu-types.h"
 #include "x6502.h"
 #include "fceu.h"
@@ -41,7 +42,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-static uint8 SongReload;
+static uint8_t SongReload;
 static int CurrentSong;
 
 static DECLFW(NSF_write);
@@ -49,7 +50,7 @@ static DECLFR(NSF_read);
 
 static int vismode = 1;
 
-static uint8 NSFROM[0x30 + 6] =
+static uint8_t NSFROM[0x30 + 6] =
 {
 /* 0x00 - NMI */
 	0x8D, 0xF4, 0x3F,	/* Stop play routine NMIs. */
@@ -81,21 +82,21 @@ static DECLFR(NSFROMRead) {
 
 static int doreset = 0;
 static int NSFNMIFlags;
-static uint8 *NSFDATA = 0;
+static uint8_t *NSFDATA = 0;
 static int NSFMaxBank;
 
 static int NSFSize;
-static uint8 BSon;
-static uint16 PlayAddr;
-static uint16 InitAddr;
-static uint16 LoadAddr;
+static uint8_t BSon;
+static uint16_t PlayAddr;
+static uint16_t InitAddr;
+static uint16_t LoadAddr;
 
 static NSF_HEADER NSFHeader;
 
 void NSFMMC5_Close(void);
-static uint8 *ExWRAM = 0;
+static uint8_t *ExWRAM = 0;
 
-void NSFGI(int h) {
+static void NSFGI(int h) {
 	switch (h) {
 	case GI_CLOSE:
 		if (NSFDATA) {
@@ -125,7 +126,7 @@ void NSFGI(int h) {
 
 /* First 32KB is reserved for sound chip emulation in the iNES mapper code. */
 
-static INLINE void BANKSET(uint32 A, uint32 bank) {
+static INLINE void BANKSET(uint32_t A, uint32_t bank) {
 	bank &= NSFMaxBank;
 	if (NSFHeader.SoundChip & 4)
 		memcpy(ExWRAM + (A - 0x6000), NSFDATA + (bank << 12), 4096);
@@ -135,9 +136,14 @@ static INLINE void BANKSET(uint32 A, uint32 bank) {
 
 int NSFLoad(FCEUFILE *fp) {
 	int x;
+	uint64_t fsize;
 
 	FCEU_fseek(fp, 0, SEEK_SET);
-	FCEU_fread(&NSFHeader, 1, 0x80, fp);
+	/* NSFHeader is file-scope static; if a previous successful load left
+	 * it populated, a shorter file that doesn't fully overwrite it could
+	 * bypass the ID memcmp on stale data. Validate read length. */
+	if (FCEU_fread(&NSFHeader, 1, 0x80, fp) != 0x80)
+		return 0;
 	if (memcmp(NSFHeader.ID, "NESM\x1a", 5))
 		return 0;
 	NSFHeader.SongName[31] = NSFHeader.Artist[31] = NSFHeader.Copyright[31] = 0;
@@ -155,12 +161,34 @@ int NSFLoad(FCEUFILE *fp) {
 	PlayAddr = NSFHeader.PlayAddressLow;
 	PlayAddr |= NSFHeader.PlayAddressHigh << 8;
 
-	NSFSize = FCEU_fgetsize(fp) - 0x80;
+	/* Validate that there is data past the 0x80-byte header before
+	 * subtracting; otherwise NSFSize underflows uint64_t and propagates a
+	 * huge size into NSFMaxBank/uppow2/FCEU_malloc, leading to a heap
+	 * overflow on the subsequent fread. Also cap at a sane ceiling. */
+	fsize = FCEU_fgetsize(fp);
+	if (fsize <= 0x80) {
+		FCEUD_PrintError("NSF file truncated (no song data after header).");
+		return(0);
+	}
+	NSFSize = fsize - 0x80;
+	/* Ceiling: 16 MiB of song data is far beyond reality */
+	if ((unsigned)NSFSize > (16u << 20)) {
+		FCEUD_PrintError("NSF song data unreasonably large.");
+		return(0);
+	}
 
 	NSFMaxBank = ((NSFSize + (LoadAddr & 0xfff) + 4095) / 4096);
 	NSFMaxBank = uppow2(NSFMaxBank);
+	/* Cap at 2^19 so NSFMaxBank * 4096 fits in signed int (the type
+	 * of NSFMaxBank). 2^19 * 4096 = 2 GiB which is already absurd for
+	 * an NSF file; the previous cap of 2^20 produced 4 GiB which
+	 * overflows signed int and is undefined behaviour. */
+	if (!NSFMaxBank || (unsigned)NSFMaxBank > (1u << 19)) {
+		FCEUD_PrintError("NSF bank count out of range.");
+		return(0);
+	}
 
-	if (!(NSFDATA = (uint8*)FCEU_malloc(NSFMaxBank * 4096)))
+	if (!(NSFDATA = (uint8_t*)FCEU_malloc(NSFMaxBank * 4096)))
 		return 0;
 
 	FCEU_fseek(fp, 0x80, SEEK_SET);
@@ -216,6 +244,8 @@ int NSFLoad(FCEUFILE *fp) {
 		ExWRAM = FCEU_gmalloc(32768 + 8192);
 	else
 		ExWRAM = FCEU_gmalloc(8192);
+	if (!ExWRAM)
+		return 0;
 	return 1;
 }
 
@@ -260,14 +290,14 @@ void NSF_init(void) {
 	}
 
 	if (BSon) {
-		int32 x;
+		int32_t x;
 		for (x = 0; x < 8; x++) {
 			if (NSFHeader.SoundChip & 4 && x >= 6)
 				BANKSET(0x6000 + (x - 6) * 4096, NSFHeader.BankSwitch[x]);
 			BANKSET(0x8000 + x * 4096, NSFHeader.BankSwitch[x]);
 		}
 	} else {
-		int32 x;
+		int32_t x;
 		for (x = (LoadAddr & 0xF000); x < 0x10000; x += 0x1000)
 			BANKSET(x, ((x - (LoadAddr & 0x7000)) >> 12));
 	}
@@ -330,15 +360,9 @@ static DECLFR(NSF_read) {
 
 	switch (A) {
 	case 0x3ff0: x = SongReload;
-				#ifdef FCEUDEF_DEBUGGER
-		if (!fceuindbg)
-				#endif
 		SongReload = 0;
 		return x;
 	case 0x3ff1:
-			#ifdef FCEUDEF_DEBUGGER
-		if (!fceuindbg)
-			#endif
 		{
 			memset(RAM, 0x00, 0x800);
 
@@ -369,11 +393,11 @@ static DECLFR(NSF_read) {
 	return 0;
 }
 
-uint8 FCEU_GetJoyJoy(void);
+uint8_t FCEU_GetJoyJoy(void);
 
 static int special = 0;
 
-void DrawNSF(uint8 *XBuf) {
+void DrawNSF(uint8_t *XBuf) {
 	char snbuf[16];
 	int x;
 
@@ -383,8 +407,8 @@ void DrawNSF(uint8 *XBuf) {
 
 
 	{
-		int32 *Bufpl;
-		int32 mul = 0;
+		int32_t *Bufpl;
+		int32_t mul = 0;
 
 		int l;
 		l = GetSoundBuffer(&Bufpl);
@@ -393,7 +417,7 @@ void DrawNSF(uint8 *XBuf) {
 			if (FSettings.SoundVolume)
 				mul = 8192 * 240 / (16384 * FSettings.SoundVolume / 50);
 			for (x = 0; x < 256; x++) {
-				uint32 y;
+				uint32_t y;
 				y = 142 + ((Bufpl[(x * l) >> 8] * mul) >> 14);
 				if (y < 240)
 					XBuf[x + y * 256] = 3;
@@ -403,7 +427,7 @@ void DrawNSF(uint8 *XBuf) {
 				mul = 8192 * 240 / (8192 * FSettings.SoundVolume / 50);
 			for (x = 0; x < 256; x++) {
 				double r;
-				uint32 xp, yp;
+				uint32_t xp, yp;
 
 				r = (Bufpl[(x * l) >> 8] * mul) >> 14;
 				xp = 128 + r*cos(x*M_PI*2 / 256);
@@ -419,7 +443,7 @@ void DrawNSF(uint8 *XBuf) {
 			for (x = 0; x < 128; x++) {
 				double xc, yc;
 				double r, t;
-				uint32 m, n;
+				uint32_t m, n;
 
 				xc = (double)128 - x;
 				yc = 0 - ((double)(((Bufpl[(x * l) >> 8]) * mul) >> 14));
@@ -436,7 +460,7 @@ void DrawNSF(uint8 *XBuf) {
 			for (x = 128; x < 256; x++) {
 				double xc, yc;
 				double r, t;
-				uint32 m, n;
+				uint32_t m, n;
 
 				xc = (double)x - 128;
 				yc = (double)((Bufpl[(x * l) >> 8] * mul) >> 14);
@@ -458,13 +482,17 @@ void DrawNSF(uint8 *XBuf) {
 	DrawTextTrans(XBuf + 26 * 256 + 4 + (((31 - strlen((char*)NSFHeader.Artist)) << 2)), 256, NSFHeader.Artist, 6);
 	DrawTextTrans(XBuf + 42 * 256 + 4 + (((31 - strlen((char*)NSFHeader.Copyright)) << 2)), 256, NSFHeader.Copyright, 6);
 
-	DrawTextTrans(XBuf + 70 * 256 + 4 + (((31 - strlen("Song:")) << 2)), 256, (uint8*)"Song:", 6);
+	DrawTextTrans(XBuf + 70 * 256 + 4 + (((31 - (sizeof("Song:") - 1)) << 2)), 256, (uint8_t*)"Song:", 6);
+	/* CurrentSong / NSFHeader.TotalSongs are uint8_t, so the formatted
+	 * string is at most "<255/255>" (9 chars) which fits trivially in
+	 * snbuf[16]. sprintf is portable; snprintf isn't on pre-MSVC2015
+	 * without linking compat_snprintf.c. */
 	sprintf(snbuf, "<%d/%d>", CurrentSong, NSFHeader.TotalSongs);
-	DrawTextTrans(XBuf + 82 * 256 + 4 + (((31 - strlen(snbuf)) << 2)), 256, (uint8*)snbuf, 6);
+	DrawTextTrans(XBuf + 82 * 256 + 4 + (((31 - strlen(snbuf)) << 2)), 256, (uint8_t*)snbuf, 6);
 
 	{
-		static uint8 last = 0;
-		uint8 tmp;
+		static uint8_t last = 0;
+		uint8_t tmp;
 		tmp = FCEU_GetJoyJoy();
 		if ((tmp & JOY_RIGHT) && !(last & JOY_RIGHT)) {
 			if (CurrentSong < NSFHeader.TotalSongs) {
@@ -512,9 +540,10 @@ int FCEUI_NSFChange(int amount) {
 }
 
 /* Returns total songs */
-int FCEUI_NSFGetInfo(uint8 *name, uint8 *artist, uint8 *copyright, int maxlen) {
-	strncpy((char*)name, (const char*)NSFHeader.SongName, (size_t)maxlen);
-	strncpy((char*)artist, (const char*)NSFHeader.Artist, (size_t)maxlen);
-	strncpy((char*)copyright, (const char*)NSFHeader.Copyright, (size_t)maxlen);
+int FCEUI_NSFGetInfo(uint8_t *name, uint8_t *artist, uint8_t *copyright, int maxlen) {
+	if (maxlen <= 0) return NSFHeader.TotalSongs;
+	strlcpy((char*)name,      (const char*)NSFHeader.SongName,  (size_t)maxlen);
+	strlcpy((char*)artist,    (const char*)NSFHeader.Artist,    (size_t)maxlen);
+	strlcpy((char*)copyright, (const char*)NSFHeader.Copyright, (size_t)maxlen);
 	return(NSFHeader.TotalSongs);
 }

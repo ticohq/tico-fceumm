@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <compat/strl.h>
 #include "../../fceu.h"
 #include "../../fceu-types.h"
 #include "../../vsuni.h"
@@ -19,7 +20,7 @@ extern CartInfo iNESCart;
 
 typedef struct {
    const char  *name;
-   uint8       value;
+   uint8_t       value;
 } SETTING;
 
 typedef struct {
@@ -1077,7 +1078,7 @@ static char *core_key[MAX_CORE_OPTIONS];
 static unsigned dipswitch_type = DPSW_NONE;
 static unsigned numCoreOptions = 0;
 static unsigned numValues[MAX_VALUES] = {0};
-static uint8 dipswitchPreset = 0;
+static uint8_t dipswitchPreset = 0;
 
 static const char *str_to_corekey(char *s)
 {
@@ -1108,10 +1109,22 @@ static void make_core_options(struct retro_core_option_v2_definition *vs_core_op
       memset(&vs_core_options[i], 0,
             sizeof(struct retro_core_option_v2_definition));
 
-      /* Set core key and sanitize string */
-      sprintf(key, "fceumm_dipswitch_%s-%s", game_name, option_name);
-      core_key[i] = calloc(strlen(key) + 1, sizeof(char));
-      strcpy(core_key[i], key);
+      /* Set core key and sanitize string. Build "fceumm_dipswitch_<game>-<option>"
+       * with strlcpy/strlcat instead of snprintf, since snprintf isn't
+       * available on pre-MSVC2015 unless compat_snprintf.c is linked
+       * (some build configurations omit it). strlcpy/strlcat truncate
+       * safely if the inputs together would overflow key[]. */
+      strlcpy(key, "fceumm_dipswitch_", sizeof(key));
+      strlcat(key, game_name,            sizeof(key));
+      strlcat(key, "-",                  sizeof(key));
+      strlcat(key, option_name,          sizeof(key));
+      {
+         size_t key_size = strlen(key) + 1;
+         core_key[i] = calloc(key_size, sizeof(char));
+         if (!core_key[i])
+            continue;
+         strlcpy(core_key[i], key, key_size);
+      }
       vs_core_options[i].key = str_to_corekey(core_key[i]);
 
       /* Set desc */
@@ -1199,8 +1212,8 @@ static VSUNIGAME *get_vsuni_dipswitch(unsigned id)
 static void update_dipswitch_vsuni(void)
 {
    unsigned index_key;
-   uint8 vsdip_new = 0;
-   uint8 last_vsdip = FCEUI_VSUniGetDIPs();
+   uint8_t vsdip_new = 0;
+   uint8_t last_vsdip = FCEUI_VSUniGetDIPs();
 
    for (index_key = 0; index_key < numCoreOptions; index_key++)
    {
@@ -1215,7 +1228,7 @@ static void update_dipswitch_vsuni(void)
       for (index_value = 0; index_value < numValues[index_key]; index_value++)
       {
          const char *var_value = vscoreopt[index_key].values[index_value].value;
-         uint8 value = 0;
+         uint8_t value = 0;
 
          if (strcmp(var.value, var_value) != 0)
             continue;

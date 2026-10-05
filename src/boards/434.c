@@ -23,7 +23,7 @@
  
 #include "mapinc.h"
 
-static uint16 latch;
+static uint16_t latch;
 
 static void Mapper434_Sync(void) {	
 	setprg16(0x8000, latch);
@@ -63,5 +63,5 @@ void Mapper434_Init(CartInfo *info) {
 	info->Reset = Mapper434_Reset;
 	info->Power = Mapper434_Power;
 	GameStateRestore = StateRestore;
-	AddExState(&latch, 2, 0, "LATC");
+	AddExState(&latch, 2, 1, "LATC");
 }

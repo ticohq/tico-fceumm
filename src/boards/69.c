@@ -21,11 +21,11 @@
 
 #include "mapinc.h"
 
-static uint8 cmdreg, preg[4], creg[8], mirr;
-static uint8 IRQa;
-static int32 IRQCount;
-static uint8 *WRAM = NULL;
-static uint32 WRAMSIZE;
+static uint8_t cmdreg, preg[4], creg[8], mirr;
+static uint8_t IRQa;
+static int32_t IRQCount;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
 
 static void(*sfun[3]) (void);
 
@@ -36,12 +36,12 @@ static SFORMAT StateRegs[] =
 	{ creg, 8, "CREG" },
 	{ &mirr, 1, "MIRR" },
 	{ &IRQa, 1, "IRQA" },
-	{ &IRQCount, 4, "IRQC" },
+	{ &IRQCount, 4 | FCEUSTATE_RLSB, "IRQC" },
 	{ 0 }
 };
 
 static void Sync(void) {
-	uint8 i;
+	uint8_t i;
 	if ((preg[3] & 0xC0) == 0xC0)
 		setprg8r(0x10, 0x6000, preg[3] & 0x3F);
 	else
@@ -104,9 +104,9 @@ static void AYSoundHQ(void);
 static void DoAYSQ(int x);
 static void DoAYSQHQ(int x);
 
-static uint8 sndcmd, sreg[14];
-static int32 vcount[3];
-static int32 dcount[3];
+static uint8_t sndcmd, sreg[14];
+static int32_t vcount[3];
+static int32_t dcount[3];
 static int CAYBC[3];
 
 static SFORMAT SStateRegs[] =
@@ -114,8 +114,13 @@ static SFORMAT SStateRegs[] =
 	{ &sndcmd, 1, "SCMD" },
 	{ sreg, 14, "SREG" },
 
-/* Ignoring these sound state files for Wii since it causes states unable to load */
-#ifndef GEKKO
+/* These were excluded on Wii/GC (GEKKO) after 2018 reports of states
+ * failing to load on big-endian hosts. The failures traced back to the
+ * since-fixed FlipByteOrder over-iteration no-op and ReadStateChunk's
+ * unchecked skip-seek, not to these entries: they are plain 4-byte
+ * scalars with FCEUSTATE_RLSB, which the state layer byte-swaps
+ * correctly on MSB_FIRST hosts. Register them everywhere so big-endian
+ * builds save and restore the full expansion-audio state. */
 	{ &dcount[0], 4 | FCEUSTATE_RLSB, "DCT0" },
 	{ &dcount[1], 4 | FCEUSTATE_RLSB, "DCT1" },
 	{ &dcount[2], 4 | FCEUSTATE_RLSB, "DCT2" },
@@ -125,7 +130,6 @@ static SFORMAT SStateRegs[] =
 	{ &CAYBC[0], 4 | FCEUSTATE_RLSB, "BC00" },
 	{ &CAYBC[1], 4 | FCEUSTATE_RLSB, "BC01" },
 	{ &CAYBC[2], 4 | FCEUSTATE_RLSB, "BC02" },
-#endif
 
 	{ 0 }
 };
@@ -156,12 +160,13 @@ static DECLFW(M69SWrite1) {
 }
 
 static void DoAYSQ(int x) {
-	int32 freq = ((sreg[x << 1] | ((sreg[(x << 1) + 1] & 15) << 8)) + 1) << (4 + 17);
-	int32 amp = (sreg[0x8 + x] & 15) << 2;
-	int32 start, end;
+	int32_t freq = ((sreg[x << 1] | ((sreg[(x << 1) + 1] & 15) << 8)) + 1) << (4 + 17);
+	int32_t amp = (sreg[0x8 + x] & 15) << 2;
+	int32_t start, end;
 	int V;
 
 	amp += amp >> 1;
+	amp = GetExpOutput(SND_S5B, amp);
 
 	start = CAYBC[x];
 	end = (SOUNDTS << 16) / soundtsinc;
@@ -181,11 +186,12 @@ static void DoAYSQ(int x) {
 }
 
 static void DoAYSQHQ(int x) {
-	uint32 V;
-	int32 freq = ((sreg[x << 1] | ((sreg[(x << 1) + 1] & 15) << 8)) + 1) << 4;
-	int32 amp = (sreg[0x8 + x] & 15) << 6;
+	uint32_t V;
+	int32_t freq = ((sreg[x << 1] | ((sreg[(x << 1) + 1] & 15) << 8)) + 1) << 4;
+	int32_t amp = (sreg[0x8 + x] & 15) << 6;
 
 	amp += amp >> 1;
+	amp = GetExpOutput(SND_S5B, amp);
 
 	if (!(sreg[0x7] & (1 << x))) {
 		for (V = CAYBC[x]; V < SOUNDTS; V++) {
@@ -240,14 +246,14 @@ static void AYSoundHQ(void) {
 	DoAYSQ3HQ();
 }
 
-static void AYHiSync(int32 ts) {
+static void AYHiSync(int32_t ts) {
 	int x;
 
 	for (x = 0; x < 3; x++)
 		CAYBC[x] = ts;
 }
 
-void Mapper69_ESI(void) {
+static void Mapper69_ESI(void) {
 	GameExpSound.RChange = Mapper69_ESI;
 	GameExpSound.HiSync = AYHiSync;
 	memset(dcount, 0, sizeof(dcount));
@@ -300,6 +306,7 @@ static void M69IRQHook(int a) {
 }
 
 static void StateRestore(int version) {
+	if (sndcmd >= 14) sndcmd = 0;	/* sreg[] has 14 entries */
 	Sync();
 }
 
@@ -308,7 +315,7 @@ void Mapper69_Init(CartInfo *info) {
 	info->Close = M69Close;
 	MapIRQHook = M69IRQHook;
 	WRAMSIZE = 8192;
-	WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 	AddExState(WRAM, WRAMSIZE, 0, "WRAM");
 	if (info->battery) {

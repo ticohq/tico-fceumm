@@ -21,12 +21,12 @@
 #include "mapinc.h"
 #include "../fds_apu.h"
 
-static uint8 latche, latcheinit, bus_conflict;
-static uint16 addrreg0, addrreg1;
-static uint8 *WRAM = NULL;
-static uint32 WRAMSIZE;
+static uint8_t latche, latcheinit, bus_conflict;
+static uint16_t addrreg0, addrreg1;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
 static void (*WSync)(void);
-static uint8 submapper;
+static uint8_t submapper;
 
 static DECLFW(LatchWrite) {
 /*	FCEU_printf("bs %04x %02x\n",A,V); */
@@ -60,7 +60,7 @@ static void StateRestore(int version) {
 	WSync();
 }
 
-static void Latch_Init(CartInfo *info, void (*proc)(void), uint8 init, uint16 adr0, uint16 adr1, uint8 wram, uint8 busc) {
+static void Latch_Init(CartInfo *info, void (*proc)(void), uint8_t init, uint16_t adr0, uint16_t adr1, uint8_t wram, uint8_t busc) {
 	bus_conflict = busc;
 	latcheinit = init;
 	addrreg0 = adr0;
@@ -71,7 +71,7 @@ static void Latch_Init(CartInfo *info, void (*proc)(void), uint8 init, uint16 ad
 	GameStateRestore = StateRestore;
 	if (wram) {
 		WRAMSIZE = 8192;
-		WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+		WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 		SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 		if (info->battery) {
 			info->SaveGame[0] = WRAM;
@@ -85,13 +85,6 @@ static void Latch_Init(CartInfo *info, void (*proc)(void), uint8 init, uint16 ad
 
 /*------------------ Map 0 ---------------------------*/
 
-#ifdef DEBUG_MAPPER
-static DECLFW(NROMWrite) {
-	FCEU_printf("bs %04x %02x\n", A, V);
-	CartBW(A, V);
-}
-#endif
-
 static void NROMPower(void) {
 	setprg8r(0x10, 0x6000, 0);	/* Famili BASIC (v3.0) need it (uses only 4KB), FP-BASIC uses 8KB */
 	setprg16(0x8000, 0);
@@ -103,10 +96,6 @@ static void NROMPower(void) {
 	SetReadHandler(0x8000, 0xFFFF, CartBR);
 
 	FCEU_CheatAddRAM(WRAMSIZE >> 10, 0x6000, WRAM);
-
-	#ifdef DEBUG_MAPPER
-	SetWriteHandler(0x4020, 0xFFFF, NROMWrite);
-	#endif
 }
 
 void NROM_Init(CartInfo *info) {
@@ -114,7 +103,7 @@ void NROM_Init(CartInfo *info) {
 	info->Close = LatchClose;
 
 	WRAMSIZE = 8192;
-	WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 	if (info->battery) {
 		info->SaveGame[0] = WRAM;
@@ -463,7 +452,7 @@ void Mapper271_Init(CartInfo *info) {
 
 /*------------------ Map 381 ---------------------------*/
 /* 2-in-1 High Standard Game (BC-019), reset-based */
-static uint8 reset = 0;
+static uint8_t reset = 0;
 static void M381Sync(void) {
 	setprg16(0x8000, ((latche & 0x10) >> 4) | ((latche & 7) << 1) | (reset << 4));
 	setprg16(0xC000, 15 | (reset << 4));
@@ -486,7 +475,7 @@ void Mapper381_Init(CartInfo *info) {
  * bootleg cartridge conversion named Super Soccer Champion
  * of the Konami FDS game Exciting Soccer.
  */
-static uint8 M538Banks[16] = { 0, 1, 2, 1, 3, 1, 4, 1, 5, 5, 1, 1, 6, 6, 7, 7 };
+static const uint8_t M538Banks[16] = { 0, 1, 2, 1, 3, 1, 4, 1, 5, 5, 1, 1, 6, 6, 7, 7 };
 static void M538Sync(void) {
 	setprg8(0x6000, (latche >> 1) | 8);
 	setprg8(0x8000, M538Banks[latche & 15]);
@@ -511,7 +500,7 @@ void Mapper538_Init(CartInfo *info) {
 /* Simple BMC discrete mapper by TXC */
 
 static void BMC11160Sync(void) {
-	uint32 bank = (latche >> 4) & 7;
+	uint32_t bank = (latche >> 4) & 7;
 	setprg32(0x8000, bank);
 	setchr8((bank << 2) | (latche & 3));
 	setmirror((latche >> 7) & 1);
@@ -558,7 +547,10 @@ void BMCK3046_Init(CartInfo *info) {
 
 static void Mapper429_Sync(void) {
 	setprg32(0x8000, latche >>2);
-	setchr8(latche);
+	if (submapper == 2)
+		setchr8(latche &3 | (latche &4 && latche &8? 4: 0));
+	else
+		setchr8(latche);
 }
 
 static void Mapper429_Reset(void) {
@@ -567,6 +559,7 @@ static void Mapper429_Reset(void) {
 }
 
 void Mapper429_Init(CartInfo *info) {
+	submapper = info->submapper;
 	info->Reset = Mapper429_Reset;
 	Latch_Init(info, Mapper429_Sync, 0, 0x8000, 0xFFFF, 0, 0);
 }
@@ -591,7 +584,7 @@ void Mapper415_Init(CartInfo *info) {
 }
 
 /*------------------ Mapper 462 ---------------------------*/
-static uint8 M462OuterBank;
+static uint8_t M462OuterBank;
 
 static void Mapper462_Sync(void) {
 	if (M462OuterBank &0x40) {

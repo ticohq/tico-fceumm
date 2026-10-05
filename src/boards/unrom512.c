@@ -39,25 +39,25 @@
 /* Workaround for libretro api compatibility */
 #define ROM_size_max                32
 #define flashdata_size          (ROM_size_max * 0x4000)
-#define flash_write_count_size  (ROM_size_max * 4 * sizeof(uint32))
-static uint8 fceumm_flash_buf[flashdata_size + flash_write_count_size];
-static uint32 fceumm_flash_buf_size = sizeof(fceumm_flash_buf);
+#define flash_write_count_size  (ROM_size_max * 4 * sizeof(uint32_t))
+static uint8_t fceumm_flash_buf[flashdata_size + flash_write_count_size];
+static uint32_t fceumm_flash_buf_size = sizeof(fceumm_flash_buf);
 
-static uint8 submapper;
-static uint8 latche, latcheinit, bus_conflict, chrram_mask, software_id=0;
-static uint16 latcha;
-static uint8 *flashdata = fceumm_flash_buf + flash_write_count_size;
-static uint32 *flash_write_count = (uint32*)fceumm_flash_buf;
-static uint8 *FlashPage[32];
-/* static uint32 *FlashWriteCountPage[32]; */
-/* static uint8 flashloaded = 0; */
+static uint8_t submapper;
+static uint8_t latche, latcheinit, bus_conflict, chrram_mask, software_id=0;
+static uint16_t latcha;
+static uint8_t *flashdata = fceumm_flash_buf + flash_write_count_size;
+static uint32_t *flash_write_count = (uint32_t*)fceumm_flash_buf;
+static uint8_t *FlashPage[32];
+/* static uint32_t *FlashWriteCountPage[32]; */
+/* static uint8_t flashloaded = 0; */
 
-static uint8 flash_save = 0, flash_state = 0, flash_mode = 0, flash_bank;
+static uint8_t flash_save = 0, flash_state = 0, flash_mode = 0, flash_bank;
 static void (*WLSync)(void);
 static void (*WHSync)(void);
 
-static INLINE void setfpageptr(int s, uint32 A, uint8 *p) {
-	uint32 AB = A >> 11;
+static INLINE void setfpageptr(int s, uint32_t A, uint8_t *p) {
+	uint32_t AB = A >> 11;
 	int x;
 
 	if (p)
@@ -70,30 +70,64 @@ static INLINE void setfpageptr(int s, uint32 A, uint8 *p) {
 		}
 }
 
-void setfprg16(uint32 A, uint32 V) {
+static void setfprg16(uint32_t A, uint32_t V) {
 	if (PRGsize[0] >= 16384) {
 		V &= PRGmask16[0];
 		setfpageptr(16, A, flashdata ? (&flashdata[V << 14]) : 0);
 	} else {
 		int x;
-		uint32 VA = V << 3;
+		uint32_t VA = V << 3;
 
 		for (x = 0; x < 8; x++)
 			setfpageptr(2, A + (x << 11), flashdata ? (&flashdata[((VA + x) & PRGmask2[0]) << 11]) : 0);
 	}
 }
 
-void inc_flash_write_count(uint8 bank, uint32 A) {
-	flash_write_count[(bank * 4) + ((A & 0x3000) >> 12)]++;
-	if (!flash_write_count[(bank * 4) + ((A & 0x3000) >> 12)])
-		flash_write_count[(bank * 4) + ((A & 0x3000) >> 12)]++;
+/* The flash write count region (the first flash_write_count_size bytes of
+ * fceumm_flash_buf) is exposed verbatim to the frontend as battery save
+ * RAM. To keep .srm files portable between LE and BE builds, we always
+ * store the counters as little-endian on disk; on BE hosts that means
+ * byte-swapping at every counter access. */
+static INLINE uint32_t fwc_load(uint32_t idx) {
+#ifdef MSB_FIRST
+	uint8_t *p = (uint8_t *)&flash_write_count[idx];
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+#else
+	return flash_write_count[idx];
+#endif
 }
 
-uint32 GetFlashWriteCount(uint8 bank, uint32 A) {
-	return flash_write_count[(bank * 4) + ((A & 0x3000) >> 12)];
+static INLINE void fwc_store(uint32_t idx, uint32_t v) {
+#ifdef MSB_FIRST
+	uint8_t *p = (uint8_t *)&flash_write_count[idx];
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+	p[2] = (uint8_t)(v >> 16);
+	p[3] = (uint8_t)(v >> 24);
+#else
+	flash_write_count[idx] = v;
+#endif
+}
+
+static void inc_flash_write_count(uint8_t bank, uint32_t A) {
+	uint32_t idx = (bank * 4) + ((A & 0x3000) >> 12);
+	uint32_t v = fwc_load(idx) + 1;
+	if (v == 0) v = 1;	/* avoid wrap to 0 (which means "never written") */
+	fwc_store(idx, v);
+}
+
+static uint32_t GetFlashWriteCount(uint8_t bank, uint32_t A) {
+	return fwc_load((bank * 4) + ((A & 0x3000) >> 12));
 }
 
 static void StateRestore(int version) {
+	/* erase_a/d/b[] are 5-element arrays indexed by flash_state.
+	 * Legitimate values are 0..4; clamp savestate values that exceed
+	 * the array to a safe value to avoid OOB reads. */
+	if (flash_state >= 5)
+		flash_state = 0;
+	if (flash_mode > 2)
+		flash_mode = 0;
 	WHSync();
 }
 
@@ -113,7 +147,7 @@ static DECLFW(UNROM512HLatchWrite) {
 }
 
 static DECLFR(UNROM512LatchRead) {
-	uint8 flash_id[3] = { 0xB5, 0xB6, 0xB7 };
+	uint8_t flash_id[3] = { 0xB5, 0xB6, 0xB7 };
 	if (software_id) {
 		if (A & 1)
 			return flash_id[ROM_size >> 4];
@@ -179,7 +213,7 @@ static void UNROM512LSync(void) {
 			memset(&FlashPage[(latcha & 0xF000) >> 11][latcha & 0xF000], 0xFF, 0x1000);
 		}
 		else if (latche == 0x10) {
-			uint32 i;
+			uint32_t i;
 			for(i = 0; i < (ROM_size * 4); i++)
 				inc_flash_write_count(i >> 2,i << 12);
 			memset(flashdata, 0xFF, ROM_size * 0x4000);	/* Erasing the rom chip as instructed. Crash rate calulated to be 99.9% :) */
@@ -256,12 +290,12 @@ void UNROM512_Init(CartInfo *info) {
 	{
 		info->SaveGame[0] = fceumm_flash_buf;
 		info->SaveGameLen[0] = fceumm_flash_buf_size;
-		AddExState(flash_write_count,ROM_size * 4 * sizeof(uint32), 0, "FLASH_WRITE_COUNT");
+		AddExState(flash_write_count,ROM_size * 4 * sizeof(uint32_t), 0, "FLASH_WRITE_COUNT");
 		AddExState(flashdata,ROM_size * 0x4000, 0, "FLASH_DATA");
 		AddExState(&flash_state, 1, 0, "FLASH_STATE");
 		AddExState(&flash_mode, 1, 0, "FLASH_MODE");
 		AddExState(&flash_bank, 1, 0, "FLASH_BANK");
-		AddExState(&latcha, 2, 0, "LATA");
+		AddExState(&latcha, 2, 1, "LATA");
 	}
 	AddExState(&latche, 1, 0, "LATC");
 	AddExState(&bus_conflict, 1, 0, "BUSC");

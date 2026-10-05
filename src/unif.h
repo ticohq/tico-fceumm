@@ -21,6 +21,8 @@
 #ifndef _FCEU_UNIF_H
 #define _FCEU_UNIF_H
 
+#include "file.h"
+
 void AC08_Init(CartInfo *info);
 void ANROM_Init(CartInfo *info);
 void BMC11160_Init(CartInfo *info);
@@ -135,7 +137,6 @@ void UNLSMB2J_Init(CartInfo *info);
 void UNLT230_Init(CartInfo *info);
 void UNLTF1201_Init(CartInfo *info);
 void UNLVRC7_Init(CartInfo *info);
-void UNLYOKO_Init(CartInfo *info);
 void UNROM_Init(CartInfo *info);
 void UNROM512_Init(CartInfo *info);
 void COOLBOY_Init(CartInfo *info);
@@ -159,12 +160,11 @@ void LH51_Init(CartInfo *info);				/* m309 */
 void BMCRESETTXROM_Init(CartInfo *info);	/* m313 */
 void FARIDSLROM8IN1_Init(CartInfo *info);	/* m323 */
 void BMC830425C4391T_Init(CartInfo *info);	/* m320 */
-void BMCTJ03_Init(CartInfo *info);			/* m341 */
 void BMCCTC09_Init(CartInfo *info);			/* m335 */
 void BMCK3046_Init(CartInfo *info);			/* m336 */
 void BMCSA005A_Init(CartInfo *info);		/* m338 */
 void BMCK3006_Init(CartInfo *info);			/* m339 */
-void BMCK3036_Init(CartInfo *info);			/* m340 */
+void Mapper340_Init(CartInfo *info);			/* m340 */
 void MINDKIDS_Init(CartInfo *info);			/* m268 */
 void UNLKS7021A_Init(CartInfo *info);		/* m525 */
 void BTL900218_Init(CartInfo *info);		/* m524 */
@@ -188,8 +188,10 @@ void Mapper422_Init(CartInfo *info);
 void Mapper444_Init(CartInfo *info);
 void COOLGIRL_Init(CartInfo* info);		/* m342 */
 
-extern uint8 *UNIFchrrama;	/* Meh.  So I can stop CHR RAM
+extern uint8_t *UNIFchrrama;	/* Meh.  So I can stop CHR RAM
 							 * bank switcherooing with certain boards...
 							 */
+
+int UNIFLoad(const char *name, FCEUFILE *fp);
 
 #endif

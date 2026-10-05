@@ -24,11 +24,11 @@
 
 
 static char side;
-static uint32 pprsb[2];
-static uint32 pprdata[2];
+static uint32_t pprsb[2];
+static uint32_t pprdata[2];
 
-static uint8 FP_FASTAPASS(1) ReadPP(int w) {
-	uint8 ret = 0;
+static uint8_t FP_FASTAPASS(1) ReadPP(int w) {
+	uint8_t ret = 0;
 	ret |= ((pprdata[w] >> pprsb[w]) & 1) << 3;
 	ret |= ((pprdata[w] >> (pprsb[w] + 8)) & 1) << 4;
 	if (pprsb[w] >= 4) {
@@ -36,9 +36,6 @@ static uint8 FP_FASTAPASS(1) ReadPP(int w) {
 		if (pprsb[w] >= 8)
 			ret |= 0x08;
 	}
-				#ifdef FCEUDEF_DEBUGGER
-	if (!fceuindbg)
-				#endif
 	pprsb[w]++;
 	return ret;
 }
@@ -47,7 +44,7 @@ static void FP_FASTAPASS(1) StrobePP(int w) {
 	pprsb[w] = 0;
 }
 
-void FP_FASTAPASS(3) UpdatePP(int w, void *data, int arg) {
+static void FP_FASTAPASS(3) UpdatePP(int w, void *data, int arg) {
 	static const char shifttableA[12] = { 8, 9, 0, 1, 11, 7, 4, 2, 10, 6, 5, 3 };
 	static const char shifttableB[12] = { 1, 0, 9, 8, 2, 4, 7, 11, 3, 5, 6, 10 };
 	int x;
@@ -56,10 +53,10 @@ void FP_FASTAPASS(3) UpdatePP(int w, void *data, int arg) {
 
 	if (side == 'A')
 		for (x = 0; x < 12; x++)
-			pprdata[w] |= (((*(uint32*)data) >> x) & 1) << shifttableA[x];
+			pprdata[w] |= (((*(uint32_t*)data) >> x) & 1) << shifttableA[x];
 	else
 		for (x = 0; x < 12; x++)
-			pprdata[w] |= (((*(uint32*)data) >> x) & 1) << shifttableB[x];
+			pprdata[w] |= (((*(uint32_t*)data) >> x) & 1) << shifttableB[x];
 }
 
 static INPUTC PwrPadCtrl = { ReadPP, 0, StrobePP, UpdatePP, 0, 0 };

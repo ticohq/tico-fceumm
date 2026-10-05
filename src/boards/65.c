@@ -20,9 +20,9 @@
 
 #include "mapinc.h"
 
-static uint8 preg[3], creg[8], mirr;
-static uint8 IRQa;
-static int16 IRQCount, IRQLatch;
+static uint8_t preg[3], creg[8], mirr;
+static uint8_t IRQa;
+static int16_t IRQCount, IRQLatch;
 
 static SFORMAT StateRegs[] =
 {
@@ -30,8 +30,8 @@ static SFORMAT StateRegs[] =
 	{ creg, 8, "CREG" },
 	{ &mirr, 1, "MIRR" },
 	{ &IRQa, 1, "IRQA" },
-	{ &IRQCount, 2, "IRQC" },
-	{ &IRQLatch, 2, "IRQL" },
+	{ &IRQCount, 2 | FCEUSTATE_RLSB, "IRQC" },
+	{ &IRQLatch, 2 | FCEUSTATE_RLSB, "IRQL" },
 	{ 0 }
 };
 
@@ -80,7 +80,7 @@ static void M65Power(void) {
 	SetWriteHandler(0x8000, 0xFFFF, M65Write);
 }
 
-void FP_FASTAPASS(1) M65IRQ(int a) {
+static void FP_FASTAPASS(1) M65IRQ(int a) {
 	if (IRQa) {
 		IRQCount -= a;
 		if (IRQCount < -4) {

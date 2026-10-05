@@ -23,19 +23,19 @@
 #include "mapinc.h"
 #include "asic_mmc1.h"
 
-static uint8 reg;
+static uint8_t reg;
 
 static void sync () {
 	if (reg &0x20)
-		MMC1_syncPRG(0x07, reg &~0x07);
+		MMC1_syncPRG(0x07, reg >>1 &0x20 | reg &0x18);
 	else
-	if (reg &0x04)
+	if (reg &0x05)
 		setprg32(0x8000, reg >>1);
 	else {
 		setprg16(0x8000, reg);
 		setprg16(0xC000, reg);
 	}
-	MMC1_syncCHR(0x1F, reg <<2 &~0x1F);
+	MMC1_syncCHR(0x1F, reg <<1 &0x80 | reg <<2 &0x60);
 	MMC1_syncMirror();
 }
 

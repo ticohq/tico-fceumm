@@ -22,10 +22,10 @@
 
 #include "mapinc.h"
 
-static uint8 is10, isPC10;
-static uint8 creg[4], latch0, latch1, preg, mirr;
-static uint8 *WRAM = NULL;
-static uint32 WRAMSIZE;
+static uint8_t is10, isPC10;
+static uint8_t creg[4], latch0, latch1, preg, mirr;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
 
 static SFORMAT StateRegs[] =
 {
@@ -54,7 +54,7 @@ static void Sync(void) {
 	setmirror(mirr);
 }
 
-DECLFW(MMC2and4Write) {
+static DECLFW(MMC2and4Write) {
 	switch (A & 0xF000) {
 	case 0xA000: preg = V & 0xF; Sync(); break;
 	case 0xB000: creg[0] = V & 0x1F; Sync(); break;
@@ -65,8 +65,8 @@ DECLFW(MMC2and4Write) {
 	}
 }
 
-static void FP_FASTAPASS(1) MMC2and4PPUHook(uint32 A) {
-	uint8 l, h = A >> 8;
+static void FP_FASTAPASS(1) MMC2and4PPUHook(uint32_t A) {
+	uint8_t l, h = A >> 8;
 	if (h >= 0x20 || ((h & 0xF) != 0xF))
 		return;
 	l = A & 0xF0;
@@ -103,6 +103,11 @@ static void MMC2and4Power(void) {
 }
 
 static void StateRestore(int version) {
+	/* latch0/latch1 are written as boolean (0 or 1) and used as
+	 * indices into creg[4] via creg[latch0] and creg[latch1 + 2].
+	 * Clamp savestate-loaded values to keep the indices in range. */
+	latch0 &= 1;
+	latch1 &= 1;
 	Sync();
 }
 
@@ -121,7 +126,7 @@ void Mapper9_Init(CartInfo *info) {
 	if (info->battery) { /* Mike Tyson's Punch-Out!! (PC10) supports save ram */
 		isPC10 = 1;
 		WRAMSIZE = 8192;
-		WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+		WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 		SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 		AddExState(WRAM, WRAMSIZE, 0, "WRAM");
 		if (info->battery) {
@@ -140,7 +145,7 @@ void Mapper10_Init(CartInfo *info) {
 	info->Close = MMC2and4Close;
 	PPU_hook = MMC2and4PPUHook;
 	WRAMSIZE = 8192;
-	WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 	AddExState(WRAM, WRAMSIZE, 0, "WRAM");
 	if (info->battery) {

@@ -22,19 +22,19 @@
 #include "asic_mmc3.h"
 
 static void (*MMC3_cbSync)();
-static int (*MMC3_cbGetPRGBank)(uint8);
-static int (*MMC3_cbGetCHRBank)(uint8);
+static int (*MMC3_cbGetPRGBank)(uint8_t);
+static int (*MMC3_cbGetCHRBank)(uint8_t);
 static DECLFR ((*MMC3_cbReadWRAM));
 static DECLFW ((*MMC3_cbWriteWRAM));
-static uint8 MMC3_type;
-static uint8 MMC3_index;
-static uint8 MMC3_reg[8];
-static uint8 MMC3_mirroring;
-static uint8 MMC3_wramControl;
-static uint8 MMC3_reloadValue;
-static uint8 MMC3_reloadRequest;
-static uint8 MMC3_irqEnable;
-static uint8 MMC3_counter;
+static uint8_t MMC3_type;
+static uint8_t MMC3_index;
+static uint8_t MMC3_reg[8];
+static uint8_t MMC3_mirroring;
+static uint8_t MMC3_wramControl;
+static uint8_t MMC3_reloadValue;
+static uint8_t MMC3_reloadRequest;
+static uint8_t MMC3_irqEnable;
+static uint8_t MMC3_counter;
 
 static SFORMAT MMC3_state[] = {
 	{ MMC3_reg,           8, "M3GS" },
@@ -52,28 +52,30 @@ void MMC3_syncWRAM (int OR) {
 	if (PRGsize[0x10]) setprg8r(0x10, 0x6000, OR);
 }
 
-int MMC3_getPRGBank (uint8 bank) {
+int MMC3_getPRGBank (uint8_t bank) {
+	bank &= 3;
 	if (MMC3_index &0x40 && ~bank &1) bank ^= 2;
 	return bank &2? 0xFE | bank &1: MMC3_reg[6 | bank &1];
 }
 
-int MMC3_getCHRBank (uint8 bank) {
+int MMC3_getCHRBank (uint8_t bank) {
+	bank &= 7;
 	if (MMC3_index &0x80) bank ^= 4;
 	return bank &4? MMC3_reg[bank -2]: MMC3_reg[bank >>1] &~1 | bank &1;
 }
 
-uint8 MMC3_getMirroring (void) {
+uint8_t MMC3_getMirroring (void) {
 	return MMC3_mirroring;
 }
 
-DECLFR (MMC3_readWRAM) {
+static DECLFR (MMC3_readWRAM) {
 	if (MMC3_wramControl &0x80 || MMC3_type == MMC3_TYPE_AX5202P || MMC3_type == MMC3_TYPE_MMC6)
 		return MMC3_cbReadWRAM? MMC3_cbReadWRAM(A): CartBR(A);
 	else
 		return A >>8;
 }
 
-DECLFW (MMC3_writeWRAM) {
+static DECLFW (MMC3_writeWRAM) {
 	if ((MMC3_wramControl &0x80 || MMC3_type == MMC3_TYPE_AX5202P) && ~MMC3_wramControl &0x40 || MMC3_type == MMC3_TYPE_MMC6) {
 		CartBW(A, V);
 		if (MMC3_cbWriteWRAM) MMC3_cbWriteWRAM(A, V);
@@ -83,6 +85,15 @@ DECLFW (MMC3_writeWRAM) {
 void MMC3_syncPRG (int AND, int OR) {
 	int bank;
 	for (bank = 0; bank < 4; bank++) setprg8(0x8000 | bank <<13, MMC3_cbGetPRGBank(bank) &AND |OR);
+	/* Enable or disable the Kick Master hack on multicarts */
+	if (CartBR(0xF885) == 0xA2 && CartBR(0xF886) == 0x08 && CartBR(0xF887) == 0xCA && CartBR(0xF888) == 0xD0 &&
+	    CartBR(0xF894) == 0x20 && CartBR(0xF895) == 0xA7 && CartBR(0xF896) == 0xFA && CartBR(0xF897) == 0xAD) { 
+		/* Kick Master is active. If the previous Horizontal Blanking handler was the standard MMC3 handler, switch it to the Kick-Master-specific one. */
+		if (GameHBIRQHook == MMC3_clockCounter) GameHBIRQHook = MMC3_clockCounter_KickMaster;
+	} else {
+		/* Kick Master is not or no longer active. If the previous handler was the Kick-Master-specific one, switch it to the standard MMC3 one. */
+		if (GameHBIRQHook == MMC3_clockCounter_KickMaster) GameHBIRQHook = MMC3_clockCounter;
+	}
 }
 
 void MMC3_syncCHR (int AND, int OR) {
@@ -90,34 +101,60 @@ void MMC3_syncCHR (int AND, int OR) {
 	for (bank = 0; bank < 8; bank++) setchr1(bank <<10, MMC3_cbGetCHRBank(bank) &AND |OR);
 }
 
-void MMC3_syncMirror () {
+void MMC3_syncMirror(void) {
 	setmirror(MMC3_mirroring &1? MI_H: MI_V);
 }
 
-void MMC3_clockCounter () {
-	uint8 prevCounter = MMC3_counter;
-	MMC3_counter = MMC3_reloadRequest || !MMC3_counter? MMC3_reloadValue: --MMC3_counter;
+void MMC3_clockCounter(void) {
+	uint8_t prevCounter = MMC3_counter;
+	if (MMC3_reloadRequest || !MMC3_counter)
+		MMC3_counter = MMC3_reloadValue;
+	else
+		MMC3_counter--;
 	if ((prevCounter || MMC3_type != MMC3_TYPE_NEC || MMC3_reloadRequest) && !MMC3_counter && MMC3_irqEnable) X6502_IRQBegin(FCEU_IQEXT);
 	MMC3_reloadRequest = 0;
 }
 
-DECLFW(MMC3_writeReg) {
-	switch(A &0xE001) {
-		case 0x8000: MMC3_index = V; break;
-		case 0x8001: MMC3_reg[MMC3_index &7] = V; break;
-		case 0xA000: MMC3_mirroring = V; break;
-		case 0xA001: MMC3_wramControl = V; break;
-		case 0xC000: MMC3_reloadValue = V; break;
-		case 0xC001: MMC3_reloadRequest = 1; MMC3_counter = 0; break;
-		case 0xE000: X6502_IRQEnd(FCEU_IQEXT); /* Fall-through */
-		case 0xE001: MMC3_irqEnable = A &1; break;
-	}
-	if (A <0xC000) MMC3_cbSync();
+void MMC3_clockCounter_KickMaster(void) {
+	if (scanline == 238) MMC3_clockCounter();
+	MMC3_clockCounter();
 }
 
-void MMC3_clear () {
+DECLFW(MMC3_writeReg) {
+	switch(A &0xE001) {
+		case 0x8000:
+			MMC3_index = V;
+			break;
+		case 0x8001:
+			MMC3_reg[MMC3_index &7] = V;
+			break;
+		case 0xA000:
+			MMC3_mirroring = V;
+			break;
+		case 0xA001:
+			MMC3_wramControl = V;
+			break;
+		case 0xC000:
+			MMC3_reloadValue = V;
+			break;
+		case 0xC001:
+			MMC3_reloadRequest = 1;
+			MMC3_counter = 0;
+			break;
+		case 0xE000:
+			X6502_IRQEnd(FCEU_IQEXT);
+			/* Fall-through */
+		case 0xE001:
+			MMC3_irqEnable = A &1;
+			break;
+	}
+	if (A < 0xC000) MMC3_cbSync();
+}
+
+void MMC3_clear(void) {
 	MMC3_reg[0] = 0; MMC3_reg[1] = 2; MMC3_reg[2] = 4; MMC3_reg[3] = 5; MMC3_reg[4] = 6; MMC3_reg[5] = 7; MMC3_reg[6] = 0; MMC3_reg[7] = 1;
 	MMC3_index = MMC3_mirroring = MMC3_wramControl = MMC3_reloadValue = MMC3_reloadRequest = MMC3_irqEnable = MMC3_counter = 0;
+	X6502_IRQEnd(FCEU_IQEXT);
 	MMC3_cbSync();
 }
 
@@ -129,7 +166,7 @@ static void MMC3_setHandlers () {
 	GameHBIRQHook = MMC3_clockCounter;
 }
 
-static void MMC3_configure (void (*sync)(), uint8 type, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+static void MMC3_configure (void (*sync)(), uint8_t type, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	MMC3_type = type;
 	MMC3_cbSync = sync;
 	MMC3_cbGetPRGBank = prg? prg: MMC3_getPRGBank;
@@ -138,7 +175,7 @@ static void MMC3_configure (void (*sync)(), uint8 type, int (*prg)(uint8), int (
 	MMC3_cbWriteWRAM = write;
 }
 
-void MMC3_activate (uint8 clear, void (*sync)(), uint8 type, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void MMC3_activate (uint8_t clear, void (*sync)(), uint8_t type, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	MMC3_configure(sync, type, prg, chr, read, write);
 	MMC3_setHandlers();
 	if (clear)
@@ -147,7 +184,7 @@ void MMC3_activate (uint8 clear, void (*sync)(), uint8 type, int (*prg)(uint8), 
 		MMC3_cbSync();
 }
 
-void MMC3_addExState () {
+void MMC3_addExState(void) {
 	AddExState(MMC3_state, ~0, 0, 0);
 }
 
@@ -155,12 +192,13 @@ void MMC3_restore (int version) {
 	MMC3_cbSync();
 }
 
-void MMC3_power () {
+void MMC3_power(void) {
 	MMC3_setHandlers();
 	MMC3_clear();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
-void MMC3_init (CartInfo *info, void (*sync)(), uint8 type, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void MMC3_init (CartInfo *info, void (*sync)(), uint8_t type, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	MMC3_addExState();
 	MMC3_configure(sync, type, prg, chr, read, write);
 	info->Power = MMC3_power;

@@ -23,13 +23,9 @@
 #include "mapinc.h"
 #include "asic_mmc3.h"
 
-static uint8 submapper;
-static uint8 reg[2];
-static uint8 pad;
-
-static DECLFR (readPad) {
-	return pad;
-}
+static uint8_t submapper;
+static uint8_t reg[2];
+static uint8_t pad;
 
 static void sync () {
 	int prgAND = reg[1] &0x02? 0x0F: 0x1F;
@@ -39,10 +35,9 @@ static void sync () {
 	MMC3_syncPRG(prgAND, prgOR &~prgAND);
 	MMC3_syncCHR(chrAND, chrOR &~chrAND);
 	MMC3_syncMirror();
-	SetReadHandler(0x8000, 0xFFFF, submapper == 1 && reg[1] &0x20 || submapper != 1 && reg[0] &0x01? readPad: CartBR);
 }
 
-static int getPRGBank (uint8 bank) {
+static int getPRGBank (uint8_t bank) {
 	if (reg[1] &0x40) {
 		int mask = reg[1] &(submapper == 2? 0x20: 0x80)? 3: 1;
 		return MMC3_getPRGBank(bank &1) &~mask | bank &mask;
@@ -50,11 +45,23 @@ static int getPRGBank (uint8 bank) {
 		return MMC3_getPRGBank(bank);
 }
 
-static int getCHRBank (uint8 bank) {
+static int getCHRBank (uint8_t bank) {
 	if (reg[1] &0x20 && submapper == 3)
 		return MMC3_getCHRBank(bank &6 | bank >>1 &1) <<1 | bank &1;
 	else
 		return MMC3_getCHRBank(bank);
+}
+
+static DECLFR (interceptPRGRead_submapper023) {
+	return reg[0] &0x01? (pad &0x0F): CartBR(A);
+}
+
+static DECLFR (interceptPRGRead_submapper1) {
+	return reg[1] &0x20? (pad &0x0F): CartBR(A);
+}
+
+static DECLFR (interceptPRGRead_submapper4) {
+	return reg[0] &0x01 && pad &0x01? X.DB: CartBR(A);
 }
 
 static DECLFW (writeReg) {
@@ -68,7 +75,7 @@ static DECLFW (writeReg) {
 
 static void reset () {
 	reg[0] = reg[1] = 0;
-	++pad;
+	pad++;
 	MMC3_clear();
 }
 
@@ -76,6 +83,7 @@ static void power () {
 	reg[0] = reg[1] = 0;
 	pad = 0;
 	MMC3_power();
+	SetReadHandler(0x8000, 0xFFFF, submapper == 4? interceptPRGRead_submapper4: submapper == 1? interceptPRGRead_submapper1: interceptPRGRead_submapper023);
 }
 
 void Mapper432_Init (CartInfo *info) {

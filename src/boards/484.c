@@ -21,7 +21,7 @@
 #include "mapinc.h"
 #include "mmc3.h"
 
-static void PRGWrap(uint32 A, uint8 V) {
+static void PRGWrap(uint32_t A, uint8_t V) {
 	int prgAND =EXPREGS[0] &0x80? 0x1F: 0x3F;
 	int prgOR  =EXPREGS[0] <<5 &0x20;
 	setprg8(A, V &prgAND | prgOR &~prgAND);
@@ -41,7 +41,7 @@ static void Power(void) {
 }
 
 void Mapper484_Init(CartInfo *info) {
-	GenMMC3_Init(info, 512, 256, info->iNES2? (info->PRGRamSize + info->PRGRamSaveSize) /1024: 8, info->battery);
+	GenMMC3_Init(info, 512, 256, CartInfo_PRGRAM_bytes(info, 8 * 1024) / 1024, info->battery);
 	pwrap = PRGWrap;
 	info->Power = Power;
 	AddExState(EXPREGS, 1, 0, "EXPR");

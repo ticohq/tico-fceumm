@@ -24,30 +24,30 @@
 #include "mmc3.h"
 
 void 	(*sync)(void);
-static uint8	allowExtendedMirroring;
+static uint8_t	allowExtendedMirroring;
 
-static uint8	mode[4];
-static uint8*	WRAM = NULL;
-static uint32	WRAMSIZE;
+static uint8_t	mode[4];
+static uint8_t*	WRAM = NULL;
+static uint32_t	WRAMSIZE;
 
-static uint8	irqControl;
-static uint8	irqEnabled;
-static uint8	irqPrescaler;
-static uint8	irqCounter;
-static uint8	irqXor;
-static uint32	lastPPUAddress;
+static uint8_t	irqControl;
+static uint8_t	irqEnabled;
+static uint8_t	irqPrescaler;
+static uint8_t	irqCounter;
+static uint8_t	irqXor;
+static uint32_t	lastPPUAddress;
 
-static uint8	prg[4];
-static uint16	chr[8];
-static uint16	nt[4];
-static uint8	latch[2];
-static uint8	mul[2];
-static uint8	adder;
-static uint8	test;
-static uint8    dipSwitch;
-static uint8	submapper;
+static uint8_t	prg[4];
+static uint16_t	chr[8];
+static uint16_t	nt[4];
+static uint8_t	latch[2];
+static uint8_t	mul[2];
+static uint8_t	adder;
+static uint8_t	test;
+static uint8_t    dipSwitch;
+static uint8_t	submapper;
 
-static uint8 cpuWriteHandlersSet;
+static uint8_t cpuWriteHandlersSet;
 static writefunc cpuWriteHandlers[0x10000]; /* Actual write handlers for CPU write trapping as a method fo IRQ clocking */
 
 static SFORMAT JYASIC_stateRegs[] = {
@@ -71,7 +71,7 @@ static SFORMAT JYASIC_stateRegs[] = {
 	{ 0 }
 };
 
-static uint8 rev (uint8_t val)
+static uint8_t rev (uint8_t val)
 {
 	return ((val <<6) &0x40) | ((val <<4) &0x20) | ((val <<2) &0x10) | (val &0x08) | ((val >>2) &0x04) | ((val >>4) &0x02) | ((val >>6) &0x01);
 }
@@ -194,16 +194,20 @@ static void clockIRQ (void)
 	if (irqEnabled)
       switch (irqControl &0xC0)
       {
-         case 0x40:
-            irqPrescaler =(irqPrescaler &~mask) | (++irqPrescaler &mask);
-            if ((irqPrescaler &mask) ==0x00 && (irqControl &0x08? irqCounter: ++irqCounter) ==0x00)
+         case 0x40: {
+            uint8_t newp = (irqPrescaler + 1) & mask;
+            irqPrescaler = (irqPrescaler & ~mask) | newp;
+            if (newp == 0x00 && (irqControl &0x08? irqCounter: ++irqCounter) ==0x00)
                X6502_IRQBegin(FCEU_IQEXT);
             break;
-         case 0x80:
-            irqPrescaler =(irqPrescaler &~mask) | (--irqPrescaler &mask);
-            if ((irqPrescaler &mask) ==mask && (irqControl &0x08? irqCounter: --irqCounter) ==0xFF)
+         }
+         case 0x80: {
+            uint8_t newp = (irqPrescaler - 1) & mask;
+            irqPrescaler = (irqPrescaler & ~mask) | newp;
+            if (newp == mask && (irqControl &0x08? irqCounter: --irqCounter) ==0xFF)
                X6502_IRQBegin(FCEU_IQEXT);
             break;
+         }
       }
 }
 
@@ -214,7 +218,7 @@ static DECLFW(trapCPUWrite)
 	cpuWriteHandlers[A](A, V);
 }
 
-static void FP_FASTAPASS(1) trapPPUAddressChange (uint32 A)
+static void FP_FASTAPASS(1) trapPPUAddressChange (uint32_t A)
 {
    if ((irqControl &0x03) ==0x02 && lastPPUAddress !=A)
    {
@@ -436,7 +440,7 @@ static void JYASIC_restore (int version)
 	sync();
 }
 
-void JYASIC_init (CartInfo *info)
+static void JYASIC_init (CartInfo *info)
 {
    cpuWriteHandlersSet =0;
    info->Reset = JYASIC_reset;
@@ -456,9 +460,9 @@ void JYASIC_init (CartInfo *info)
 
    if (WRAMSIZE)
    {
-      WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+      WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
       SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
-      FCEU_CheatAddRAM(WRAMSIZE >> 10, 0x6000, WRAM);
+      FCEU_CheatAddRAM((WRAMSIZE >> 10) < 8 ? (WRAMSIZE >> 10) : 8, 0x6000, WRAM);
    }
 }
 
@@ -545,7 +549,7 @@ void Mapper282_Init(CartInfo *info)
 	JYASIC_init(info);
 }
 
-void sync295 (void)
+static void sync295 (void)
 {
    syncPRG(0x0F, mode[3] <<4);
    syncCHR(0x7F, mode[3] <<7);
@@ -560,7 +564,7 @@ void Mapper295_Init(CartInfo *info)
 	JYASIC_init(info);
 }
 
-void sync358 (void)
+static void sync358 (void)
 {
    syncPRG(0x1F, mode[3] <<4 &~0x1F);
    if (mode[3] &0x20)
@@ -583,7 +587,7 @@ void Mapper358_Init(CartInfo *info)
 	JYASIC_init(info);
 }
 
-void sync386 (void)
+static void sync386 (void)
 {
    syncPRG(0x1F, mode[3] <<4 &0x20 | mode[3] <<3 &0x40);
    if (mode[3] &0x20)
@@ -606,7 +610,7 @@ void Mapper386_Init(CartInfo *info)
 	JYASIC_init(info);
 }
 	
-void sync387(void)
+static void sync387(void)
 {
 	syncPRG(0x0F, mode[3] <<3 &0x10 | mode[3] <<2 &0x20);
 	if (mode[3] &0x20)
@@ -629,7 +633,7 @@ void Mapper387_Init(CartInfo *info)
    JYASIC_init(info);
 }
 
-void sync388 (void)
+static void sync388 (void)
 {
    syncPRG(0x1F, mode[3] <<3 &0x60);
 
@@ -653,7 +657,7 @@ void Mapper388_Init(CartInfo *info)
 	JYASIC_init(info);
 }
 
-void sync397 (void)
+static void sync397 (void)
 {
 	syncPRG(0x1F, mode[3] <<4 &~0x1F);
 	syncCHR(0x7F, mode[3] <<7);
@@ -668,7 +672,7 @@ void Mapper397_Init(CartInfo *info)
    JYASIC_init(info);
 }
 
-void sync421 (void)
+static void sync421 (void)
 {
    if (mode[3] &0x04)
       syncPRG(0x3F, mode[3] <<4 &~0x3F);
@@ -687,8 +691,8 @@ void Mapper421_Init(CartInfo *info)
 }
 
 /* Mapper 394: HSK007 circuit board that can simulate J.Y. ASIC, MMC3, and NROM. */
-static uint8 HSK007Reg[4];
-void sync394 (void) /* Called when J.Y. ASIC is active */
+static uint8_t HSK007Reg[4];
+static void sync394 (void) /* Called when J.Y. ASIC is active */
 {
 	int prgOR  =HSK007Reg[3] <<1 &0x010 | HSK007Reg[1] <<5 &0x060;
 	int chrOR  =HSK007Reg[3] <<1 &0x080 | HSK007Reg[1] <<6 &0x100 | HSK007Reg[1] <<8 &0x200;
@@ -696,7 +700,7 @@ void sync394 (void) /* Called when J.Y. ASIC is active */
 	syncCHR(0xFF, chrOR);
 	syncNT (0xFF, chrOR);	
 }
-static void Mapper394_PWrap(uint32 A, uint8 V)
+static void Mapper394_PWrap(uint32_t A, uint8_t V)
 {
 	int prgAND =HSK007Reg[3] &0x10? 0x1F: 0x0F;
 	int prgOR  =HSK007Reg[3] <<1 &0x010 | HSK007Reg[1] <<5 &0x060;
@@ -707,7 +711,7 @@ static void Mapper394_PWrap(uint32 A, uint8 V)
 		setprg32(A, (prgOR | HSK007Reg[3] <<1 &0x0F) >>2);
 	
 }
-static void Mapper394_CWrap(uint32 A, uint8 V)
+static void Mapper394_CWrap(uint32_t A, uint8_t V)
 {
 	int chrAND =HSK007Reg[3] &0x80? 0xFF: 0x7F;
 	int chrOR  =submapper ==1? (HSK007Reg[3] <<1 &0x080 | HSK007Reg[1] <<8 &0x200 | HSK007Reg[1] <<6 &0x100): (HSK007Reg[3] <<1 &0x080 | HSK007Reg[1] <<8 &0x300);	
@@ -715,7 +719,7 @@ static void Mapper394_CWrap(uint32 A, uint8 V)
 }
 static DECLFW(Mapper394_Write)
 {
-	uint8 oldMode =HSK007Reg[1];
+	uint8_t oldMode =HSK007Reg[1];
 	A &=3;
 	HSK007Reg[A] =V;
 	if (A ==1)

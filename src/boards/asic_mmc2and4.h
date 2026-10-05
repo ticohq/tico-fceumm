@@ -25,13 +25,13 @@ void MMC24_syncWRAM (int);
 void MMC2_syncPRG (int, int);
 void MMC4_syncPRG (int, int);
 void MMC24_syncCHR (int, int);
-void MMC24_syncMirror ();
+void MMC24_syncMirror(void);
 DECLFW (MMC24_write);
-void MMC24_clear ();
-void MMC24_power ();
+void MMC24_clear(void);
+void MMC24_power(void);
 void MMC24_restore (int);
-void MMC24_addExState ();
-void MMC24_activate (uint8, void (*)());
+void MMC24_addExState(void);
+void MMC24_activate (uint8_t, void (*)());
 void MMC24_init (CartInfo *, void (*)());
 
 #endif

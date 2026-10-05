@@ -27,12 +27,12 @@
 
 #include "mapinc.h"
 
-static uint8 preg;
-static uint8 latch;
-static uint8 IRQa;
-static uint16 IRQCount;
+static uint8_t preg;
+static uint8_t latch;
+static uint8_t IRQa;
+static uint16_t IRQCount;
 
-static const uint8 banks[8] = { 4, 3, 5, 3, 6, 3, 7, 3 };
+static const uint8_t banks[8] = { 4, 3, 5, 3, 6, 3, 7, 3 };
 
 static SFORMAT StateRegs[] =
 {
@@ -100,6 +100,7 @@ static void FP_FASTAPASS(1) M368IRQHook(int a) {
 }
 
 static void StateRestore(int version) {
+	preg &= 7;	/* banks[] has 8 entries */
 	Sync();
 }
 

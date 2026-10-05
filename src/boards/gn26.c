@@ -26,13 +26,13 @@
 #include "mapinc.h"
 #include "mmc3.h"
 
-static void BMCGN26CW(uint32 A, uint8 V) {
+static void BMCGN26CW(uint32_t A, uint8_t V) {
 	int chrAND = EXPREGS[0]&0x04? 0xFF: 0x7F;
 	int chrOR  = EXPREGS[0] <<7;
 	setchr1(A, V &chrAND | chrOR &~chrAND);
 }
 
-static void BMCGN26PW(uint32 A, uint8 V) {
+static void BMCGN26PW(uint32_t A, uint8_t V) {
 	if (EXPREGS[0] & 4) {
 		if (A == 0x8000)
 			setprg32(0x8000, (EXPREGS[0] << 2) | (V >> 2));
@@ -40,21 +40,28 @@ static void BMCGN26PW(uint32 A, uint8 V) {
 		setprg8(A, (EXPREGS[0] << 4) | (V & 0x0F));
 }
 
+static DECLFR(readPad) {
+	return EXPREGS[1] &0x01? X.DB: CartBR(A);
+}
+
 static DECLFW(BMCGN26Write) {
 	if (A001B &0x80 && ~A001B &0x40) {
 		EXPREGS[0] = A;
 		FixMMC3PRG(MMC3_cmd);
 		FixMMC3CHR(MMC3_cmd);
+		SetReadHandler(0x8000, 0xFFFF, EXPREGS[0] &0x08? readPad: CartBR);
 	}
 }
 
 static void BMCGN26Reset(void) {
 	EXPREGS[0] = 0;
+	EXPREGS[1]++;
 	MMC3RegReset();
 }
 
 static void BMCGN26Power(void) {
 	GenMMC3Power();
+	EXPREGS[1] = 0;
 	SetWriteHandler(0x6000, 0x7FFF, BMCGN26Write);
 }
 
@@ -64,5 +71,5 @@ void BMCGN26_Init(CartInfo *info) {
 	cwrap = BMCGN26CW;
 	info->Power = BMCGN26Power;
 	info->Reset = BMCGN26Reset;
-	AddExState(EXPREGS, 1, 0, "EXPR");
+	AddExState(EXPREGS, 2, 0, "EXPR");
 }

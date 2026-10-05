@@ -23,18 +23,9 @@
 
 #include "mapinc.h"
 
-static uint8 cmd, dip;
-static uint8 latch[8];
-static uint8 mapperNum;
-
-static void S74LS374MSync(uint8 mirr) {
-	switch (mirr & 3) {
-	case 0: setmirror(MI_V); break;
-	case 1: setmirror(MI_H); break;
-	case 2: setmirrorw(0, 1, 1, 1); break;
-	case 3: setmirror(MI_0); break;
-	}
-}
+static uint8_t cmd, dip;
+static uint8_t latch[8];
+static uint8_t mapperNum;
 
 static int type;
 static void S8259Synco(void) {
@@ -65,10 +56,15 @@ static void S8259Synco(void) {
 			}
 		}
 	}
-	if (!(latch[7] & 1))
-		S74LS374MSync(latch[7] >> 1);
-	else
+	if (latch[7] &1)
 		setmirror(MI_V);
+	else
+	switch(latch[7] >>1 &3) {
+		case 0: setmirror(mapperNum == 137? MI_H: MI_V); break;
+		case 1: setmirror(mapperNum == 137? MI_V: MI_H); break;
+		case 2: setmirrorw(0, 1, 1, 1); break;
+		case 3: setmirror(MI_0); break;
+	}
 }
 
 static DECLFW(S8259Write) {
@@ -94,10 +90,12 @@ static void S8259Reset(void) {
 }
 
 static void S8259Restore(int version) {
+	cmd &= 7;	/* latch[] has 8 entries; clamp savestate value */
 	S8259Synco();
 }
 
 void S8259A_Init(CartInfo *info) {	/* Kevin's Horton 141 mapper */
+	mapperNum = info->mapper;
 	info->Power = S8259Reset;
 	GameStateRestore = S8259Restore;
 	AddExState(latch, 8, 0, "LATC");
@@ -106,6 +104,7 @@ void S8259A_Init(CartInfo *info) {	/* Kevin's Horton 141 mapper */
 }
 
 void S8259B_Init(CartInfo *info) {	/* Kevin's Horton 138 mapper */
+	mapperNum = info->mapper;
 	info->Power = S8259Reset;
 	GameStateRestore = S8259Restore;
 	AddExState(latch, 8, 0, "LATC");
@@ -114,6 +113,7 @@ void S8259B_Init(CartInfo *info) {	/* Kevin's Horton 138 mapper */
 }
 
 void S8259C_Init(CartInfo *info) {	/* Kevin's Horton 139 mapper */
+	mapperNum = info->mapper;
 	info->Power = S8259Reset;
 	GameStateRestore = S8259Restore;
 	AddExState(latch, 8, 0, "LATC");
@@ -122,6 +122,7 @@ void S8259C_Init(CartInfo *info) {	/* Kevin's Horton 139 mapper */
 }
 
 void S8259D_Init(CartInfo *info) {	/* Kevin's Horton 137 mapper */
+	mapperNum = info->mapper;
 	info->Power = S8259Reset;
 	GameStateRestore = S8259Restore;
 	AddExState(latch, 8, 0, "LATC");
@@ -226,7 +227,7 @@ void SA0037_Init(CartInfo *info) {
 /* --------------------------------------------- */
 
 static DECLFR(TCA01Read) {
-	uint8 ret;
+	uint8_t ret;
 	if ((A & 0x4100) == 0x4100)
 		ret = (X.DB & 0xC0) | ((~A) & 0x3F);
 	else
@@ -253,7 +254,7 @@ void TCA01_Init(CartInfo *info) {
 /* Mapper 243 - SA-020A */
 
 static void S74LS374NSynco(void) {
-	uint32 chrBank;
+	uint32_t chrBank;
 	if (mapperNum == 150)
 		chrBank = (latch[6] & 3) | ((latch[4] << 2) & 4) | (latch[2] << 3);
 	else
@@ -271,7 +272,7 @@ static void S74LS374NSynco(void) {
 }
 
 static DECLFR(S74LS374NRead) {
-	uint8 ret;
+	uint8_t ret;
 	if ((A & 0xC101) == 0x4101) {
 		if (dip & 1)
 			ret = (latch[cmd] & 3) | (X.DB & 0xFC);
@@ -298,6 +299,7 @@ static DECLFW(S74LS374NWrite) {
 }
 
 static void S74LS374NRestore(int version) {
+	cmd &= 7;	/* latch[] has 8 entries; clamp savestate value */
 	S74LS374NSynco();
 }
 

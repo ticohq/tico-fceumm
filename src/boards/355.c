@@ -22,8 +22,8 @@
 #include "mapinc.h"
 #include "pic16c5x.h"
 
-static uint32 address;
-static uint8 *picrom = NULL;
+static uint32_t address;
+static uint8_t *picrom = NULL;
 
 static uint8_t pci16c5x_read(int port) {
 	if (port == 0) {
@@ -117,5 +117,5 @@ void UNL3DBlock_Init(CartInfo *info) {
 	info->Reset = M355Reset;
 	info->Close = M355Close;
 	MapIRQHook = M355CPUIRQHook;
-	AddExState(&address, sizeof(address), 0, "ADDR");
+	AddExState(&address, sizeof(address), 1, "ADDR");
 }

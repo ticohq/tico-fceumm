@@ -23,7 +23,8 @@
 #include "mapinc.h"
 #include "asic_vrc2and4.h"
 
-static uint8 reg;
+static uint8_t submapper;
+static uint8_t reg;
 
 static void sync () {
 	int prgAND = reg &0x10? 0x1F: 0x0F;
@@ -33,7 +34,7 @@ static void sync () {
 	if (reg &0x20)
 		VRC24_syncPRG(prgAND, prgOR &~prgAND);
 	else
-	if (reg &0x6)
+	if (submapper == 0 && reg &0x06 || submapper == 1 && reg &0x02 && reg &0x04)
 		setprg32(0x8000, reg >>1);
 	else {
 		setprg16(0x8000, reg);
@@ -65,6 +66,7 @@ static void power () {
 }
 
 void Mapper571_Init (CartInfo *info) {
+	submapper = info->submapper;
 	VRC4_init(info, sync, 4, 8, 1, NULL, NULL, NULL, writeReg, NULL);
 	info->Power = power;
 	info->Reset = reset;

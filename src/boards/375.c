@@ -20,17 +20,17 @@
 
 #include "mapinc.h"
 
-static uint8 *WRAM = NULL;
-static uint32 WRAMSIZE;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
 
-static uint16 addrlatch;
-static uint8 datalatch;
+static uint16_t addrlatch;
+static uint8_t datalatch;
 
 static void Sync(void) {
-	uint32 S = addrlatch & 1;
-	uint32 p = ((addrlatch >> 2) & 0x1F) + ((addrlatch & 0x100) >> 3) + ((addrlatch & 0x400) >> 4);
-	uint32 L = (addrlatch >> 9) & 1;
-	uint32 p_8000 = p;
+	uint32_t S = addrlatch & 1;
+	uint32_t p = ((addrlatch >> 2) & 0x1F) + ((addrlatch & 0x100) >> 3) + ((addrlatch & 0x400) >> 4);
+	uint32_t L = (addrlatch >> 9) & 1;
+	uint32_t p_8000 = p;
 
 	if ((addrlatch >> 11) & 1)
 		p_8000 = (p & 0x7E) | (datalatch & 7);
@@ -107,15 +107,22 @@ static void StateRestore(int version) {
 	Sync();
 }
 
+static void M375Close(void) {
+	if (WRAM)
+		FCEU_gfree(WRAM);
+	WRAM = NULL;
+}
+
 void Mapper375_Init(CartInfo *info) {
 	info->Power = M375Power;
 	info->Reset = M375Reset;
+	info->Close = M375Close;
 	GameStateRestore = StateRestore;
-	AddExState(&addrlatch, 2, 0, "ADDR");
+	AddExState(&addrlatch, 2, 1, "ADDR");
 	AddExState(&datalatch, 1, 0, "DATA");
 
 	WRAMSIZE = 8192;
-	WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 	AddExState(WRAM, WRAMSIZE, 0, "WRAM");
 }

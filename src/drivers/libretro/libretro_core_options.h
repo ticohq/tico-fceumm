@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <compat/strl.h>
 #include <libretro.h>
 #include <retro_inline.h>
 
@@ -22,7 +23,7 @@ extern "C" {
 */
 
 /* NOTE: add 8 for dipswitch */
-#define MAX_CORE_OPTIONS 42
+#define MAX_CORE_OPTIONS 64
 
 /* RETRO_LANGUAGE_ENGLISH */
 
@@ -291,6 +292,39 @@ struct retro_core_option_v2_definition option_defs[] = {
       "disabled"
    },
 #endif
+#ifdef HAVE_HDPACK
+   {
+      "fceumm_hdpacks",
+      "HD Texture Packs (Restart)",
+      NULL,
+      "Load Mesen-format HD texture packs from '<system>/HdPacks/<rom name>/hires.txt' when present. Replaces tiles/sprites with high-resolution artwork (PNG, DDS or WebP) and enables the pack's custom backgrounds and OGG/WAV music and sound effects. Requires a frontend that supports XRGB8888 output.",
+      NULL,
+      "video",
+      {
+         { "enabled",  NULL },
+         { "disabled", NULL },
+         { NULL, NULL },
+      },
+      "enabled"
+   },
+#endif
+   {
+      "fceumm_sndrate_hint",
+      "Sound Samplerate (Hint)",
+      NULL,
+      "The NES has no sample-based audio hardware; sound is synthesized in realtime, so there is no fixed output samplerate. Select the rate the core generates audio at. Higher rates lower latency and reduce aliasing and low-pass 'smearing' from frontend resampling, at a small performance cost. 'Auto' picks whichever supported rate is closest to the frontend's target output rate.",
+      NULL,
+      "audio",
+      {
+         { "Auto",  NULL },
+         { "32KHz", NULL },
+         { "44KHz", NULL },
+         { "48KHz", NULL },
+         { "96KHz", NULL },
+         { NULL, NULL },
+      },
+      "Auto",
+   },
    {
       "fceumm_sndquality",
       "Sound Quality",
@@ -311,6 +345,34 @@ struct retro_core_option_v2_definition option_defs[] = {
       "Audio RF Filter",
       NULL,
       "Apply a low pass audio filter to simulate the 'muted' sound of the NES when connected to a television via the RF modulator.",
+      NULL,
+      "audio",
+      {
+         { "disabled", NULL },
+         { "enabled",  NULL },
+         { NULL, NULL },
+      },
+      "disabled",
+   },
+   {
+      "fceumm_removetrianglenoise",
+      "Reduce Triangle Channel Popping",
+      NULL,
+      "Mute the triangle channel when its period drops into the ultrasonic range (period <= 3, > ~12 kHz at NTSC).  Eliminates the audible popping some games (Castlevania II: Simon's Quest, Jackal, etc.) produce in High / Very High sound quality, where the DAC reconstruction filter would otherwise fold the ultrasonic content back into the audible range.  Low quality is unaffected (it already silences ultrasonic triangle output).",
+      NULL,
+      "audio",
+      {
+         { "disabled", NULL },
+         { "enabled",  NULL },
+         { NULL, NULL },
+      },
+      "disabled",
+   },
+   {
+      "fceumm_reducedmcpopping",
+      "Reduce DMC Channel Popping",
+      NULL,
+      "Smooth direct writes to the DMC DAC register ($4011) by stepping the DAC only halfway toward each new value.  Reduces the audible click when games (Castlevania II: Simon's Quest, etc.) pulse the DAC for manual sample playback.  Normal DPCM bit-stream sample playback is unaffected.",
       NULL,
       "audio",
       {
@@ -471,6 +533,204 @@ struct retro_core_option_v2_definition option_defs[] = {
          { NULL, NULL },
       },
       "enabled",
+   },
+   {
+      "fceumm_apu_fds",
+      "Channel Volume (FDS)",
+      NULL,
+      "Scale Famicom Disk System 2C33 wavetable expansion-audio output (0 = mute, 100 = unscaled).",
+      NULL,
+      "audio",
+      {
+         {   "0", NULL },
+         {   "5", NULL },
+         {  "10", NULL },
+         {  "15", NULL },
+         {  "20", NULL },
+         {  "25", NULL },
+         {  "30", NULL },
+         {  "35", NULL },
+         {  "40", NULL },
+         {  "45", NULL },
+         {  "50", NULL },
+         {  "55", NULL },
+         {  "60", NULL },
+         {  "65", NULL },
+         {  "70", NULL },
+         {  "75", NULL },
+         {  "80", NULL },
+         {  "85", NULL },
+         {  "90", NULL },
+         {  "95", NULL },
+         { "100", NULL },
+         { NULL,   NULL  },
+      },
+      "100",
+   },
+   {
+      "fceumm_apu_s5b",
+      "Channel Volume (S5B)",
+      NULL,
+      "Scale Sunsoft 5B (YM2149F) expansion-audio output (0 = mute, 100 = unscaled).",
+      NULL,
+      "audio",
+      {
+         {   "0", NULL },
+         {   "5", NULL },
+         {  "10", NULL },
+         {  "15", NULL },
+         {  "20", NULL },
+         {  "25", NULL },
+         {  "30", NULL },
+         {  "35", NULL },
+         {  "40", NULL },
+         {  "45", NULL },
+         {  "50", NULL },
+         {  "55", NULL },
+         {  "60", NULL },
+         {  "65", NULL },
+         {  "70", NULL },
+         {  "75", NULL },
+         {  "80", NULL },
+         {  "85", NULL },
+         {  "90", NULL },
+         {  "95", NULL },
+         { "100", NULL },
+         { NULL,   NULL  },
+      },
+      "100",
+   },
+   {
+      "fceumm_apu_n163",
+      "Channel Volume (N163)",
+      NULL,
+      "Scale Namco 163 expansion-audio output (0 = mute, 100 = unscaled).",
+      NULL,
+      "audio",
+      {
+         {   "0", NULL },
+         {   "5", NULL },
+         {  "10", NULL },
+         {  "15", NULL },
+         {  "20", NULL },
+         {  "25", NULL },
+         {  "30", NULL },
+         {  "35", NULL },
+         {  "40", NULL },
+         {  "45", NULL },
+         {  "50", NULL },
+         {  "55", NULL },
+         {  "60", NULL },
+         {  "65", NULL },
+         {  "70", NULL },
+         {  "75", NULL },
+         {  "80", NULL },
+         {  "85", NULL },
+         {  "90", NULL },
+         {  "95", NULL },
+         { "100", NULL },
+         { NULL,   NULL  },
+      },
+      "100",
+   },
+   {
+      "fceumm_apu_vrc6",
+      "Channel Volume (VRC6)",
+      NULL,
+      "Scale Konami VRC6 expansion-audio output (0 = mute, 100 = unscaled).",
+      NULL,
+      "audio",
+      {
+         {   "0", NULL },
+         {   "5", NULL },
+         {  "10", NULL },
+         {  "15", NULL },
+         {  "20", NULL },
+         {  "25", NULL },
+         {  "30", NULL },
+         {  "35", NULL },
+         {  "40", NULL },
+         {  "45", NULL },
+         {  "50", NULL },
+         {  "55", NULL },
+         {  "60", NULL },
+         {  "65", NULL },
+         {  "70", NULL },
+         {  "75", NULL },
+         {  "80", NULL },
+         {  "85", NULL },
+         {  "90", NULL },
+         {  "95", NULL },
+         { "100", NULL },
+         { NULL,   NULL  },
+      },
+      "100",
+   },
+   {
+      "fceumm_apu_vrc7",
+      "Channel Volume (VRC7)",
+      NULL,
+      "Scale Konami VRC7 (YM2413-clone) expansion-audio output (0 = mute, 100 = unscaled).",
+      NULL,
+      "audio",
+      {
+         {   "0", NULL },
+         {   "5", NULL },
+         {  "10", NULL },
+         {  "15", NULL },
+         {  "20", NULL },
+         {  "25", NULL },
+         {  "30", NULL },
+         {  "35", NULL },
+         {  "40", NULL },
+         {  "45", NULL },
+         {  "50", NULL },
+         {  "55", NULL },
+         {  "60", NULL },
+         {  "65", NULL },
+         {  "70", NULL },
+         {  "75", NULL },
+         {  "80", NULL },
+         {  "85", NULL },
+         {  "90", NULL },
+         {  "95", NULL },
+         { "100", NULL },
+         { NULL,   NULL  },
+      },
+      "100",
+   },
+   {
+      "fceumm_apu_mmc5",
+      "Channel Volume (MMC5)",
+      NULL,
+      "Scale Nintendo MMC5 PCM + square expansion-audio output (0 = mute, 100 = unscaled).",
+      NULL,
+      "audio",
+      {
+         {   "0", NULL },
+         {   "5", NULL },
+         {  "10", NULL },
+         {  "15", NULL },
+         {  "20", NULL },
+         {  "25", NULL },
+         {  "30", NULL },
+         {  "35", NULL },
+         {  "40", NULL },
+         {  "45", NULL },
+         {  "50", NULL },
+         {  "55", NULL },
+         {  "60", NULL },
+         {  "65", NULL },
+         {  "70", NULL },
+         {  "75", NULL },
+         {  "80", NULL },
+         {  "85", NULL },
+         {  "90", NULL },
+         {  "95", NULL },
+         { "100", NULL },
+         { NULL,   NULL  },
+      },
+      "100",
    },
    {
       "fceumm_turbo_enable",
@@ -961,6 +1221,7 @@ static INLINE void libretro_set_core_options(retro_environment_t environ_cb,
                /* Build values string */
                if (num_values > 0)
                {
+                  size_t pos;
                   buf_len += num_values - 1;
                   buf_len += strlen(desc);
 
@@ -968,19 +1229,24 @@ static INLINE void libretro_set_core_options(retro_environment_t environ_cb,
                   if (!values_buf[i])
                      goto error;
 
-                  strcpy(values_buf[i], desc);
-                  strcat(values_buf[i], "; ");
+                  /* strlcpy at offset is used in place of strcat:
+                   * strlcpy returns the source length (which equals
+                   * what was written when buf_len is sized exactly),
+                   * letting us track position without rescanning the
+                   * buffer with strlen on each append. */
+                  pos  = strlcpy(values_buf[i],         desc,                            buf_len);
+                  if (pos < buf_len) pos += strlcpy(values_buf[i] + pos, "; ",                            buf_len - pos);
 
                   /* Default value goes first */
-                  strcat(values_buf[i], values[default_index].value);
+                  if (pos < buf_len) pos += strlcpy(values_buf[i] + pos, values[default_index].value,     buf_len - pos);
 
                   /* Add remaining values */
                   for (j = 0; j < num_values; j++)
                   {
                      if (j != default_index)
                      {
-                        strcat(values_buf[i], "|");
-                        strcat(values_buf[i], values[j].value);
+                        if (pos < buf_len) pos += strlcpy(values_buf[i] + pos, "|",                       buf_len - pos);
+                        if (pos < buf_len) pos += strlcpy(values_buf[i] + pos, values[j].value,           buf_len - pos);
                      }
                   }
                }

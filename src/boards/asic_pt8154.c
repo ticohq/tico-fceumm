@@ -23,7 +23,7 @@
 #include "asic_mmc3.h"
 
 static void (*PT8154_cbSync)();
-static uint8 PT8154_reg;
+static uint8_t PT8154_reg;
 
 static SFORMAT PT8154_state[] = {
 	{&PT8154_reg,   1, "189R" },
@@ -40,7 +40,7 @@ void PT8154_syncCHR (int AND, int OR) {
 	MMC3_syncCHR(AND, OR &~AND);
 }
 
-void PT8154_syncMirror () {
+void PT8154_syncMirror(void) {
 	MMC3_syncMirror();
 }
 
@@ -56,7 +56,7 @@ DECLFW (PT8154_writeWRAM) {
 	PT8154_cbSync();
 }
 
-void PT8154_clear () {
+void PT8154_clear(void) {
 	PT8154_reg = 0;
 	PT8154_cbSync();
 }
@@ -69,7 +69,7 @@ static void PT8154_configure (void (*sync)()) {
 	PT8154_cbSync = sync;
 }
 
-void PT8154_activate (uint8 clear, void (*sync)()) {
+void PT8154_activate (uint8_t clear, void (*sync)()) {
 	MMC3_activate(clear, sync, MMC3_TYPE_AX5202P, NULL, NULL, NULL, PT8154_writeWRAM);
 	PT8154_configure(sync);
 	PT8154_setHandlers();
@@ -79,7 +79,7 @@ void PT8154_activate (uint8 clear, void (*sync)()) {
 		PT8154_cbSync();
 }
 
-void PT8154_addExState () {
+void PT8154_addExState(void) {
 	AddExState(PT8154_state, ~0, 0, 0);
 }
 
@@ -87,7 +87,7 @@ void PT8154_restore (int version) {
 	PT8154_cbSync();
 }
 
-void PT8154_power () {
+void PT8154_power(void) {
 	MMC3_power();
 	PT8154_setHandlers();
 	PT8154_clear();

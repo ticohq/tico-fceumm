@@ -1,3 +1,23 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2025 NewRisingSun
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
+
 #include "mapinc.h"
 #include "msm6585.h"
 
@@ -54,7 +74,7 @@ static const int16_t diff_lookup[49*16] = {
 };
 static const int16_t index_shift[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
 
-void MSM6585_init (MSM6585* chip, int32 newHostClock, int (*newGetInput)(void)) {
+void MSM6585_init (MSM6585* chip, int32_t newHostClock, int (*newGetInput)(void)) {
 	chip->hostClock = newHostClock;
 	chip->getInput = newGetInput;
 	AddExState(&chip->whichNibble, 1, 0, "MSMW");
@@ -71,7 +91,7 @@ void MSM6585_reset (MSM6585* chip) {
 	chip->signal = -2;
 }
 
-void MSM6585_setRate (MSM6585* chip, uint8 rateByte) {
+void MSM6585_setRate (MSM6585* chip, uint8_t rateByte) {
 	chip->rate = 4000 <<(rateByte &3);
 }
 

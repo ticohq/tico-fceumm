@@ -10,6 +10,14 @@
 #endif
 
 #include <libretro.h>
+
+/* Older bundled libretro.h headers may not define this experimental
+ * environment callback. Define it locally so the core still builds and
+ * can probe for it at runtime (the frontend returns false when absent). */
+#ifndef RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE
+#define RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE (81 | RETRO_ENVIRONMENT_EXPERIMENTAL)
+#endif
+
 #include <string/stdstring.h>
 #include <file/file_path.h>
 #include <streams/file_stream.h>
@@ -33,10 +41,15 @@
 #include "../../unif.h"
 #include "../../fds.h"
 #include "../../vsuni.h"
+
+#ifdef HAVE_HDPACK
+#include "../../hdpack/hdpack.h"
+#endif
 #include "../../video.h"
 
 #ifdef PSP
 #include "pspgu.h"
+#include <psputils.h>
 #endif
 
 #if defined(RENDER_GSKIT_PS2)
@@ -50,7 +63,7 @@
 #define RED_EXPAND 3
 #define GREEN_EXPAND 2
 #define BLUE_EXPAND 3
-typedef uint16 bpp_t;
+typedef uint16_t bpp_t;
 #elif defined (FRONTEND_SUPPORTS_ABGR1555)
 #define RED_SHIFT 0
 #define GREEN_SHIFT 5
@@ -61,7 +74,7 @@ typedef uint16 bpp_t;
 #define RED_MASK 0x1F
 #define GREEN_MASK 0x3E0
 #define BLUE_MASK 0x7C00
-typedef uint16 bpp_t;
+typedef uint16_t bpp_t;
 #elif defined (FRONTEND_SUPPORTS_RGB888)
 #define RED_SHIFT 16
 #define GREEN_SHIFT 8
@@ -72,7 +85,7 @@ typedef uint16 bpp_t;
 #define RED_MASK 0xFF0000
 #define GREEN_MASK 0x00FF00
 #define BLUE_MASK 0x0000FF
-typedef uint32 bpp_t;
+typedef uint32_t bpp_t;
 #elif defined (FRONTEND_SUPPORTS_RGB565)
 #define RED_SHIFT 11
 #define GREEN_SHIFT 5
@@ -83,7 +96,7 @@ typedef uint32 bpp_t;
 #define RED_MASK 0xF800
 #define GREEN_MASK 0x7e0
 #define BLUE_MASK 0x1f
-typedef uint16 bpp_t;
+typedef uint16_t bpp_t;
 #else
 #define RED_SHIFT 10
 #define GREEN_SHIFT 5
@@ -91,7 +104,7 @@ typedef uint16 bpp_t;
 #define RED_EXPAND 3
 #define GREEN_EXPAND 3
 #define BLUE_EXPAND 3
-typedef uint16 bpp_t;
+typedef uint16_t bpp_t;
 #endif
 
 #define MAX_PLAYERS 4 /* max supported players */
@@ -112,6 +125,9 @@ typedef uint16 bpp_t;
 #define RETRO_DEVICE_FC_HYPERSHOT RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 3)
 #define RETRO_DEVICE_FC_FTRAINERA RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_KEYBOARD, 2)
 #define RETRO_DEVICE_FC_FTRAINERB RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_KEYBOARD, 3)
+#define RETRO_DEVICE_FC_FKB       RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_KEYBOARD, 4)
+#define RETRO_DEVICE_FC_SUBORKB   RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_KEYBOARD, 5)
+#define RETRO_DEVICE_FC_PEC586KB  RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_KEYBOARD, 6)
 #define RETRO_DEVICE_FC_AUTO      RETRO_DEVICE_JOYPAD
 
 #define NES_WIDTH   256
@@ -149,6 +165,22 @@ static int crop_overscan_v_bottom;
 
 static bool use_raw_palette;
 static int aspect_ratio_par;
+
+/* Pixel format negotiated with the frontend at retro_load_game. Cached
+ * here for retro_run_blit so it can validate that
+ * GET_CURRENT_SOFTWARE_FRAMEBUFFER returned a format we can write into
+ * directly. */
+static enum retro_pixel_format active_pixformat = RETRO_PIXEL_FORMAT_UNKNOWN;
+
+#ifdef HAVE_HDPACK
+/* Set while a hires.txt parsed successfully in retro_load_game but the
+ * game itself has not finished loading yet (hdnes_active is only raised
+ * by HDNes_PostLoadInit). */
+static int hd_pack_pending = 0;
+/* Soft-patched ROM copy produced from the pack's <patch> IPS; owned
+ * here for the lifetime of the loaded game. */
+static uint8_t *hd_patched_rom = NULL;
+#endif
 
 /*
  * Flags to keep track of whether turbo
@@ -192,6 +224,30 @@ static const uint32_t powerpadmap[] = {
    RETROK_z, RETROK_x, RETROK_c, RETROK_v,
 };
 
+static const uint32_t fkbmap[0x48] = {
+	RETROK_F1,RETROK_F2,RETROK_F3,RETROK_F4,RETROK_F5,RETROK_F6,RETROK_F7,RETROK_F8,
+	RETROK_1,RETROK_2,RETROK_3,RETROK_4,RETROK_5,RETROK_6,RETROK_7,RETROK_8,RETROK_9,RETROK_0,RETROK_MINUS,RETROK_EQUALS,RETROK_BACKSLASH,RETROK_BACKSPACE,
+	RETROK_ESCAPE,RETROK_q,RETROK_w,RETROK_e,RETROK_r,RETROK_t,RETROK_y,RETROK_u,RETROK_i,RETROK_o,RETROK_p,RETROK_TILDE,RETROK_LEFTBRACKET,RETROK_RETURN,
+	RETROK_LCTRL,RETROK_a,RETROK_s,RETROK_d,RETROK_f,RETROK_g,RETROK_h,RETROK_j,RETROK_k,RETROK_l,RETROK_SEMICOLON,RETROK_QUOTE,RETROK_RIGHTBRACKET,RETROK_INSERT,
+	RETROK_LSHIFT,RETROK_z,RETROK_x,RETROK_c,RETROK_v,RETROK_b,RETROK_n,RETROK_m,RETROK_COMMA,RETROK_PERIOD,RETROK_SLASH,RETROK_RALT,RETROK_RSHIFT,RETROK_LALT,RETROK_SPACE,
+	RETROK_DELETE,RETROK_END,RETROK_PAGEDOWN,
+	RETROK_UP,RETROK_LEFT,RETROK_RIGHT,RETROK_DOWN
+};
+
+static const uint32_t suborkbmap[0x65] = {
+	RETROK_ESCAPE,RETROK_F1,RETROK_F2,RETROK_F3,RETROK_F4,RETROK_F5,RETROK_F6,RETROK_F7,RETROK_F8,RETROK_F9,
+	RETROK_F10,RETROK_F11,RETROK_F12,RETROK_NUMLOCK,RETROK_CARET,RETROK_1,RETROK_2,RETROK_3,RETROK_4,RETROK_5,
+	RETROK_6,RETROK_7,RETROK_8,RETROK_9,RETROK_0,RETROK_MINUS,RETROK_EQUALS,RETROK_BACKSPACE,RETROK_INSERT,RETROK_HOME,
+	RETROK_PAGEUP,RETROK_PAUSE,RETROK_KP_DIVIDE,RETROK_KP_MULTIPLY,RETROK_KP_MINUS,RETROK_TAB,RETROK_q,RETROK_w,RETROK_e,RETROK_r,
+	RETROK_t,RETROK_y,RETROK_u,RETROK_i,RETROK_o,RETROK_p,RETROK_LEFTBRACKET,RETROK_RIGHTBRACKET,RETROK_RETURN,RETROK_DELETE,
+	RETROK_END,RETROK_PAGEDOWN,RETROK_KP7,RETROK_KP8,RETROK_KP9,RETROK_KP_PLUS,RETROK_CAPSLOCK,RETROK_a,RETROK_s,RETROK_d,
+	RETROK_f,RETROK_g,RETROK_h,RETROK_j,RETROK_k,RETROK_l,RETROK_SEMICOLON,RETROK_QUOTE,RETROK_KP4,RETROK_KP5,
+	RETROK_KP6,RETROK_LSHIFT,RETROK_z,RETROK_x,RETROK_c,RETROK_v,RETROK_b,RETROK_n,RETROK_m,RETROK_COMMA,
+	RETROK_PERIOD,RETROK_SLASH,RETROK_BACKSLASH,RETROK_UP,RETROK_KP1,RETROK_KP2,RETROK_KP3,RETROK_LCTRL,RETROK_LALT,RETROK_SPACE,
+	RETROK_LEFT,RETROK_DOWN,RETROK_RIGHT,RETROK_KP0,RETROK_KP_PERIOD,RETROK_UNKNOWN,RETROK_UNKNOWN,RETROK_UNKNOWN,RETROK_UNKNOWN,RETROK_UNKNOWN,
+	RETROK_UNKNOWN
+};
+
 
 typedef struct {
    bool enable_4player;                /* four-score / 4-player adapter used */
@@ -208,6 +264,8 @@ typedef struct {
    uint32_t MouseData[MAX_PORTS][4];      /* nes mouse data */
    uint32_t FamicomData[3];               /* Famicom expansion port data */
    uint32_t PowerPadData;
+   uint8_t  FamilyKeyboardData[0x48];
+   uint8_t  SuborKeyboardData[0x65];
 } NES_INPUT_T;
 
 static NES_INPUT_T nes_input = { 0 };
@@ -226,7 +284,7 @@ static unsigned libretro_msg_interface_version = 0;
 
 const size_t PPU_BIT = 1ULL << 31ULL;
 
-extern uint8 NTARAM[0x800], PALRAM[0x20], SPRAM[0x100], PPU[4];
+extern uint8_t NTARAM[0x800], PALRAM[0x20], SPRAM[0x100], PPU[4];
 
 /* overclock the console by adding dummy scanlines to PPU loop
  * disables DMC DMA and WaveHi filling for these dummies
@@ -258,6 +316,9 @@ static bpp_t* fceu_video_out;
 
 /* Some timing-related variables. */
 static unsigned sndsamplerate;
+/* User-selected samplerate hint: 0 = Auto, else an explicit rate in Hz
+ * (one of the supported 32000/44100/48000/96000 values). */
+static unsigned sndsamplerate_hint = 0;
 static unsigned sndquality;
 static unsigned sndvolume;
 unsigned swapDuty;
@@ -269,7 +330,7 @@ static unsigned serialize_size;
 
 /* extern forward decls.*/
 extern FCEUGI *GameInfo;
-extern uint8 *XBuf;
+extern uint8_t *XBuf;
 extern CartInfo iNESCart;
 extern CartInfo UNIFCart;
 extern int show_crosshair;
@@ -279,6 +340,7 @@ extern int zapper_sensor_invert_option;
 
 /* emulator-specific callback functions */
 
+const char *GetKeyboard(void); /* used by src/boards/transformer.c */
 const char * GetKeyboard(void)
 {
    return "";
@@ -286,9 +348,19 @@ const char * GetKeyboard(void)
 
 #define BUILD_PIXEL_RGB565(R,G,B) (((int) ((R)&0x1f) << RED_SHIFT) | ((int) ((G)&0x3f) << GREEN_SHIFT) | ((int) ((B)&0x1f) << BLUE_SHIFT))
 
-void FCEUD_SetPalette(uint16 index, uint8_t r, uint8_t g, uint8_t b)
+void FCEUD_SetPalette(uint16_t index, uint8_t r, uint8_t g, uint8_t b)
 {
-   uint16 index_to_write = index;
+   uint16_t index_to_write = index;
+
+#ifdef HAVE_HDPACK
+   /* HD pack composition uses its own 32-bit palette so output follows
+    * the user's palette selection unless the pack ships palette.dat.
+    * WritePalette() installs the visible 64-colour NES palette at
+    * frontend indices 128..191 (0..127 is the "unvaried" region padded
+    * with 205,205,205 filler), so capture that window. */
+   if (index >= 128 && index < 128 + 64)
+      HDNes_SetPaletteColor(index - 128, r, g, b);
+#endif
 #if defined(RENDER_GSKIT_PS2)
    /* Index correction for PS2 GS */
    int modi = index & 63;
@@ -317,12 +389,12 @@ static struct retro_log_callback log_cb;
 
 static void default_logger(enum retro_log_level level, const char *fmt, ...) {}
 
-void FCEUD_PrintError(char *c)
+void FCEUD_PrintError(const char *c)
 {
    log_cb.log(RETRO_LOG_WARN, "%s", c);
 }
 
-void FCEUD_Message(char *s)
+void FCEUD_Message(const char *s)
 {
    log_cb.log(RETRO_LOG_INFO, "%s", s);
 }
@@ -377,7 +449,7 @@ void FCEUD_DispMessage(enum retro_log_level level, unsigned duration, const char
    }
 }
 
-void FCEUD_SoundToggle (void)
+static void FCEUD_SoundToggle (void)
 {
    FCEUI_SetSoundVolume(sndvolume);
 }
@@ -389,7 +461,7 @@ void FCEUD_SoundToggle (void)
 #define PAL_CUSTOM   (PAL_INTERNAL + 3)
 #define PAL_TOTAL    PAL_CUSTOM
 
-static uint8 external_palette_exist = false;
+static uint8_t external_palette_exist = false;
 
 /* table for currently loaded palette */
 static uint8_t base_palette[192];
@@ -1004,6 +1076,23 @@ static void stereo_filter_apply_null(int32_t *sound_buffer, size_t size)
             (sound_buffer[i] & 0xFFFF);
 }
 
+/* Pack a (current, delayed) stereo sample pair into one int32_t such
+ * that the in-memory int16_t order seen by audio_batch_cb is the same
+ * on every host: delayed sample in the first (left) slot, current
+ * sample in the second (right) slot. On little-endian the low half of
+ * the word is stored first; on big-endian the high half is, so the
+ * two halves must be swapped to keep the interleaved channel order
+ * host-independent. (stereo_filter_apply_null needs no such handling
+ * because it duplicates the same mono sample into both halves.) */
+static INLINE int32_t stereo_filter_pack_pair(int32_t current, int32_t delayed)
+{
+#ifdef MSB_FIRST
+   return (delayed << 16) | (current & 0xFFFF);
+#else
+   return (current << 16) | (delayed & 0xFFFF);
+#endif
+}
+
 static void stereo_filter_apply_delay(int32_t *sound_buffer, size_t size)
 {
    size_t delay_capacity = stereo_filter_delay.samples_size -
@@ -1021,6 +1110,13 @@ static void stereo_filter_apply_delay(int32_t *sound_buffer, size_t size)
       tmp_buffer_size = (tmp_buffer_size << 1) - (tmp_buffer_size >> 1);
       tmp_buffer      = (int32_t *)malloc(tmp_buffer_size * sizeof(int32_t));
 
+      if (!tmp_buffer)
+      {
+         /* On allocation failure, drop this batch rather than dereferencing
+          * a NULL buffer in the memcpy below. The next batch will retry. */
+         return;
+      }
+
       memcpy(tmp_buffer, stereo_filter_delay.samples,
             stereo_filter_delay.samples_pos * sizeof(int32_t));
 
@@ -1030,9 +1126,12 @@ static void stereo_filter_apply_delay(int32_t *sound_buffer, size_t size)
       stereo_filter_delay.samples_size = tmp_buffer_size;
    }
 
-   for (i = 0; i < size; i++)
-      stereo_filter_delay.samples[i +
-            stereo_filter_delay.samples_pos] = sound_buffer[i];
+   /* Copy current samples into the delay buffer's tail. The previous
+    * implementation walked the array element-by-element; memcpy is
+    * trivially equivalent for non-overlapping int32_t blocks and
+    * lets the compiler/libc dispatch SIMD where available. */
+   memcpy(stereo_filter_delay.samples + stereo_filter_delay.samples_pos,
+         sound_buffer, size * sizeof(int32_t));
 
    stereo_filter_delay.samples_pos += size;
 
@@ -1056,13 +1155,14 @@ static void stereo_filter_apply_delay(int32_t *sound_buffer, size_t size)
 
       /* Each element of sound_buffer is a 16 bit mono sample
        * stored in a 32 bit value. We convert this to stereo
-       * by copying the mono sample to the high (left channel)
-       * 16 bit region and the delayed sample to the low
-       * (right channel) region, casting sound_buffer
-       * to int16_t when uploading to the frontend */
+       * by mixing the current sample with the delayed sample
+       * as an interleaved pair, casting sound_buffer to
+       * int16_t when uploading to the frontend. The packing
+       * helper keeps the delayed/current channel order the
+       * same on little- and big-endian hosts. */
       for (i = size - samples_to_mix; i < size; i++)
-         sound_buffer[i] = (sound_buffer[i] << 16) |
-               (stereo_filter_delay.samples[delay_index++] & 0xFFFF);
+         sound_buffer[i] = stereo_filter_pack_pair(sound_buffer[i],
+               stereo_filter_delay.samples[delay_index++]);
 
       /* Remove the mixed samples from the delay buffer */
       memmove(stereo_filter_delay.samples,
@@ -1108,6 +1208,15 @@ static void stereo_filter_init_delay(void)
 
    stereo_filter_delay.samples      = (int32_t *)malloc(
          initial_samples_size * sizeof(int32_t));
+   if (!stereo_filter_delay.samples)
+   {
+      /* Fall back to the null filter on allocation failure rather than
+       * leaving a NULL samples buffer that the apply path would deref. */
+      stereo_filter_delay.samples_size = 0;
+      stereo_filter_delay.samples_pos  = 0;
+      stereo_filter_apply              = stereo_filter_apply_null;
+      return;
+   }
    stereo_filter_delay.samples_size = initial_samples_size;
    stereo_filter_delay.samples_pos  = 0;
 
@@ -1323,6 +1432,18 @@ static void update_nes_controllers(unsigned port, unsigned device)
          FCEUI_SetInputFC(SIFC_FTRAINERB, &nes_input.PowerPadData, 0);
          FCEU_printf(" Famicom Expansion: Family Trainer B\n");
          break;
+      case RETRO_DEVICE_FC_FKB:
+         FCEUI_SetInputFC(SIFC_FKB, &nes_input.FamilyKeyboardData, 0);
+         FCEU_printf(" Famicom Expansion: Family BASIC Keyboard\n");
+         break;
+      case RETRO_DEVICE_FC_SUBORKB:
+         FCEUI_SetInputFC(SIFC_SUBORKB, &nes_input.SuborKeyboardData, 0);
+         FCEU_printf(" Famicom Expansion: Subor Keyboard\n");
+         break;
+      case RETRO_DEVICE_FC_PEC586KB:
+         FCEUI_SetInputFC(SIFC_PEC586KB, &nes_input.SuborKeyboardData, 0);
+         FCEU_printf(" Famicom Expansion: Dongda Keyboard\n");
+         break;
       case RETRO_DEVICE_NONE:
       default:
          FCEUI_SetInputFC(SIFC_NONE, &Dummy, 0);
@@ -1373,6 +1494,12 @@ static unsigned fc_to_libretro(int d)
       return RETRO_DEVICE_FC_FTRAINERA;
    case SIFC_FTRAINERB:
       return RETRO_DEVICE_FC_FTRAINERB;
+   case SIFC_FKB:
+      return RETRO_DEVICE_FC_FKB;
+   case SIFC_SUBORKB:
+      return RETRO_DEVICE_FC_SUBORKB;
+   case SIFC_PEC586KB:
+      return RETRO_DEVICE_FC_PEC586KB;
    }
 
    return (RETRO_DEVICE_NONE);
@@ -1386,7 +1513,7 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
       {
          if (device != RETRO_DEVICE_AUTO)
             update_nes_controllers(port, device);
-         else
+         else if (GameInfo) /* GameInfo may be NULL pre-load */
             update_nes_controllers(port, nes_to_libretro(GameInfo->input[port]));
       }
       else
@@ -1413,7 +1540,7 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
          {
             if (device != RETRO_DEVICE_FC_AUTO)
                update_nes_controllers(4, device);
-            else
+            else if (GameInfo) /* GameInfo may be NULL pre-load */
                update_nes_controllers(4, fc_to_libretro(GameInfo->inputfc));
          }
 
@@ -1496,10 +1623,12 @@ static bool update_option_visibility(void)
          struct retro_core_option_display option_display;
          unsigned i;
          unsigned size;
-         char options_list[][25] = {
+         char options_list[][32] = {
             "fceumm_sndvolume",
             "fceumm_sndquality",
             "fceumm_sndlowpass",
+            "fceumm_removetrianglenoise",
+            "fceumm_reducedmcpopping",
             "fceumm_sndstereodelay",
             "fceumm_swapduty",
             "fceumm_apu_1",
@@ -1697,7 +1826,13 @@ void retro_set_environment(retro_environment_t cb)
 
    environ_cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports);
 
-   vfs_iface_info.required_interface_version = 1;
+   /* libretro-common's file_stream wires the v2 truncate callback, so
+    * it ignores any interface negotiated below
+    * FILESTREAM_REQUIRED_VFS_VERSION (2). Requesting version 1 here
+    * made filestream_vfs_init a silent no-op and left every
+    * filestream call on the local fallback implementation instead of
+    * the frontend's VFS. */
+   vfs_iface_info.required_interface_version = FILESTREAM_REQUIRED_VFS_VERSION;
    vfs_iface_info.iface                      = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface_info))
       filestream_vfs_init(&vfs_iface_info);
@@ -1733,6 +1868,20 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 {
    unsigned width  = NES_WIDTH  - crop_overscan_h_left - crop_overscan_h_right;
    unsigned height = NES_HEIGHT - crop_overscan_v_top - crop_overscan_v_bottom;
+#ifdef HAVE_HDPACK
+   if (hdnes_active)
+   {
+      unsigned scale = HDNes_GetScale();
+      info->geometry.base_width = width * scale;
+      info->geometry.max_width = NES_WIDTH * scale;
+      info->geometry.base_height = height * scale;
+      info->geometry.max_height = NES_HEIGHT * scale;
+      info->geometry.aspect_ratio = get_aspect_ratio(width, height);
+      info->timing.sample_rate = (float)sndsamplerate;
+      info->timing.fps = (FSettings.PAL || dendy) ? NES_PAL_FPS : NES_NTSC_FPS;
+      return;
+   }
+#endif
 #ifdef HAVE_NTSC_FILTER
    info->geometry.base_width = (use_ntsc ? NES_NTSC_OUT_WIDTH(width) : width);
    info->geometry.max_width = (use_ntsc ? NES_NTSC_WIDTH : NES_WIDTH);
@@ -1841,20 +1990,20 @@ static void retro_set_custom_palette(void)
  */
 static void FCEUD_RegionOverride(unsigned region)
 {
-   unsigned pal = 0;
+   unsigned is_pal = 0;
    unsigned d = 0;
 
    switch (region)
    {
       case 0: /* auto */
          d = (systemRegion >> 1) & 1;
-         pal = systemRegion & 1;
+         is_pal = systemRegion & 1;
          break;
       case 1: /* ntsc */
          FCEUD_DispMessage(RETRO_LOG_INFO, 2000, "System: NTSC");
          break;
       case 2: /* pal */
-         pal = 1;
+         is_pal = 1;
          FCEUD_DispMessage(RETRO_LOG_INFO, 2000, "System: PAL");
          break;
       case 3: /* dendy */
@@ -1864,7 +2013,7 @@ static void FCEUD_RegionOverride(unsigned region)
    }
 
    dendy = d;
-   FCEUI_SetVidSystem(pal);
+   FCEUI_SetVidSystem(is_pal);
    ResetPalette();
 }
 
@@ -1874,7 +2023,9 @@ void retro_deinit (void)
    FCEUI_Sound(0);
    FCEUI_Kill();
 #if defined(_3DS)
-   linearFree(fceu_video_out);
+   if (fceu_video_out)
+      linearFree(fceu_video_out);
+   fceu_video_out = NULL;
 #else
    if (fceu_video_out)
       free(fceu_video_out);
@@ -1895,16 +2046,92 @@ void retro_deinit (void)
 
 void retro_reset(void)
 {
+   /* Reset clears the turbo toggle phase so the rapid-fire cycle starts
+    * at the same point every reset, matching how the core's other
+    * input-poll state behaves on power-cycle.  Without this, a held
+    * turbo button would resume mid-cycle after Reset and produce a
+    * different first-frame input than a fresh boot. */
+   memset(turbo_button_toggle, 0, sizeof(turbo_button_toggle));
    ResetNES();
+#ifdef HAVE_HDPACK
+   /* Mapper power/reset handler reinstalls can shadow the HD audio
+    * registers; claim them back. */
+   HDNes_InstallAudioHandlers();
+#endif
 }
 
 static void set_apu_channels(int chan)
 {
-   FSettings.SquareVolume[1] = (chan & 1) ? 256 : 0;
-   FSettings.SquareVolume[0] = (chan & 2) ? 256 : 0;
-   FSettings.TriangleVolume  = (chan & 3) ? 256 : 0;
-   FSettings.NoiseVolume     = (chan & 4) ? 256 : 0;
-   FSettings.PCMVolume       = (chan & 5) ? 256 : 0;
+   /* Bitmask layout (set up by check_variables): bit i = fceumm_apu_(i+1)
+    * is enabled. Channel order matches the libretro core options:
+    *   bit 0  = Square 1   (apu_1)
+    *   bit 1  = Square 2   (apu_2)
+    *   bit 2  = Triangle   (apu_3)
+    *   bit 3  = Noise      (apu_4)
+    *   bit 4  = PCM / DMC  (apu_5)
+    *
+    * The previous masks crossed the SQ1/SQ2 indices and used non-power-of-
+    * two values for the remaining channels, which silently broke the
+    * apu_3..apu_5 toggles entirely (any combination of bits 0/1/2 left
+    * those channels audible) and made apu_1 mute SQ2 and vice versa. */
+   FSettings.SquareVolume[0] = (chan & 0x01) ? 256 : 0;
+   FSettings.SquareVolume[1] = (chan & 0x02) ? 256 : 0;
+   FSettings.TriangleVolume  = (chan & 0x04) ? 256 : 0;
+   FSettings.NoiseVolume     = (chan & 0x08) ? 256 : 0;
+   FSettings.PCMVolume       = (chan & 0x10) ? 256 : 0;
+}
+
+/* Resolve the user's samplerate hint into an actual output rate in Hz.
+ *
+ * The NES has no sample-based audio hardware; sound is synthesized in
+ * realtime, so there is no single 'native' rate. We support 32000, 44100,
+ * 48000 and 96000 Hz. When the hint is "Auto", we query the frontend for
+ * its target output rate via RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE and
+ * snap to whichever of our supported rates is closest, minimising the work
+ * the frontend's resampler has to do (lower latency, less aliasing, no
+ * low-pass "smearing", better time-domain resolution at the higher rates).
+ *
+ * Fallback: if the frontend does not implement the callback (older
+ * frontends return false), or returns an implausible value, we fall back
+ * to a platform-appropriate default (32000 Hz on Wii, else 48000 Hz). */
+static unsigned resolve_samplerate_hint(void)
+{
+   static const unsigned supported[4] = { 32000, 44100, 48000, 96000 };
+
+   /* Explicit user selection always wins over Auto. */
+   if (sndsamplerate_hint != 0)
+      return sndsamplerate_hint;
+
+   /* Auto: ask the frontend what it is targeting. */
+   {
+      unsigned target = 0;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE, &target) &&
+            target >= 8000 && target <= 384000)
+      {
+         unsigned best      = supported[0];
+         unsigned best_dist = (target > supported[0]) ?
+               (target - supported[0]) : (supported[0] - target);
+         int i;
+         for (i = 1; i < 4; i++)
+         {
+            unsigned dist = (target > supported[i]) ?
+                  (target - supported[i]) : (supported[i] - target);
+            if (dist < best_dist)
+            {
+               best_dist = dist;
+               best      = supported[i];
+            }
+         }
+         return best;
+      }
+   }
+
+   /* Fallback: callback unavailable or returned an implausible value. */
+#ifdef GEKKO
+   return 32000;
+#else
+   return 48000;
+#endif
 }
 
 static void check_variables(bool startup)
@@ -2226,7 +2453,7 @@ static void check_variables(bool startup)
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      unsigned oldval = aspect_ratio_par;
+      int oldval = aspect_ratio_par;
       if (!strcmp(var.value, "8:7 PAR")) {
         aspect_ratio_par = 1;
       } else if (!strcmp(var.value, "4:3")) {
@@ -2281,6 +2508,47 @@ static void check_variables(bool startup)
       }
    }
 
+   var.key = "fceumm_sndrate_hint";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      unsigned oldhint = sndsamplerate_hint;
+      unsigned oldrate = sndsamplerate;
+      unsigned newrate;
+
+      if (!strcmp(var.value, "32KHz"))
+         sndsamplerate_hint = 32000;
+      else if (!strcmp(var.value, "44KHz"))
+         sndsamplerate_hint = 44100;
+      else if (!strcmp(var.value, "48KHz"))
+         sndsamplerate_hint = 48000;
+      else if (!strcmp(var.value, "96KHz"))
+         sndsamplerate_hint = 96000;
+      else /* "Auto" */
+         sndsamplerate_hint = 0;
+
+      newrate = resolve_samplerate_hint();
+
+      if (startup)
+      {
+         /* During load, just settle the rate before the av_info is first
+          * reported to the frontend. No SET_SYSTEM_AV_INFO needed yet. */
+         if (newrate != oldrate)
+         {
+            sndsamplerate = newrate;
+            FCEUI_Sound(sndsamplerate);
+         }
+      }
+      /* Re-init the synthesizer and request a frontend av_info update only
+       * when the resolved output rate actually changes at runtime. */
+      else if (sndsamplerate_hint != oldhint || newrate != oldrate)
+      {
+         sndsamplerate = newrate;
+         FCEUI_Sound(sndsamplerate);
+         audio_video_updated = 2;
+      }
+   }
+
    var.key = "fceumm_sndquality";
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -2302,6 +2570,22 @@ static void check_variables(bool startup)
    {
       int lowpass = (!strcmp(var.value, "enabled")) ? 1 : 0;
       FCEUI_SetLowPass(lowpass);
+   }
+
+   var.key = "fceumm_removetrianglenoise";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int newval = (!strcmp(var.value, "enabled")) ? 1 : 0;
+      FCEUI_RemoveTriangleNoise(newval);
+   }
+
+   var.key = "fceumm_reducedmcpopping";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int newval = (!strcmp(var.value, "enabled")) ? 1 : 0;
+      FCEUI_ReduceDmcPopping(newval);
    }
 
    var.key = "fceumm_sndstereodelay";
@@ -2375,23 +2659,58 @@ static void check_variables(bool startup)
 
    enable_apu = 0xff;
 
-   strcpy(key, "fceumm_apu_x");
+   strlcpy(key, "fceumm_apu_x", sizeof(key));
    for (i = 0; i < 5; i++)
    {
-      key[strlen("fceumm_apu_")] = '1' + i;
+      /* Replace the trailing 'x' with '1'..'5'. The literal length is
+       * known at compile time so use sizeof-1 to avoid the strlen call
+       * inside the loop. */
+      key[sizeof("fceumm_apu_") - 1] = '1' + i;
       var.value = NULL;
       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && !strcmp(var.value, "disabled"))
          enable_apu &= ~(1 << i);
    }
    set_apu_channels(enable_apu);
 
+   /* Per-channel expansion-audio volume controls (#512).  Six options
+    * map 1:1 to SND_FDS..SND_MMC5 indexing FSettings.ExpVolume[].  UI
+    * values are 0..100 in steps of 5; the internal scale is 0..256
+    * (matching the convention used for FSettings.SquareVolume[] etc).
+    * A value of 256 (i.e. UI "100") is the default and leaves the
+    * mixing path bit-identical to pre-#512 builds. */
+   {
+      static const struct { int channel; const char *key; } expvol_opts[] = {
+         { SND_FDS,  "fceumm_apu_fds"  },
+         { SND_S5B,  "fceumm_apu_s5b"  },
+         { SND_N163, "fceumm_apu_n163" },
+         { SND_VRC6, "fceumm_apu_vrc6" },
+         { SND_VRC7, "fceumm_apu_vrc7" },
+         { SND_MMC5, "fceumm_apu_mmc5" },
+      };
+      size_t j;
+      for (j = 0; j < sizeof(expvol_opts) / sizeof(expvol_opts[0]); j++)
+      {
+         struct retro_variable expv = { 0 };
+         expv.key = expvol_opts[j].key;
+         if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &expv) && expv.value)
+         {
+            int pct = atoi(expv.value);
+            int newval;
+            if (pct < 0)   pct = 0;
+            if (pct > 100) pct = 100;
+            newval = (256 * pct) / 100;
+            if (FSettings.ExpVolume[expvol_opts[j].channel] != newval)
+               FSettings.ExpVolume[expvol_opts[j].channel] = newval;
+         }
+      }
+   }
+
    update_dipswitch();
 
    update_option_visibility();
 }
 
-void add_powerpad_input(unsigned port, uint32 variant, uint32_t *ppdata) 
-{
+static void add_powerpad_input(unsigned port, uint32_t variant, uint32_t *ppdata) {
    unsigned k;
    const uint32_t* map = powerpadmap;
    for (k = 0 ; k < 12 ; k++)
@@ -2399,9 +2718,29 @@ void add_powerpad_input(unsigned port, uint32 variant, uint32_t *ppdata)
             *ppdata |= (1 << k);
 }
 
+static void add_fkb_input(unsigned port, uint32_t variant, uint8_t *fkbkeys) {
+   unsigned k;
+   const uint32_t* map = fkbmap;
+   for (k = 0 ; k < 0x48 ; k++)
+   	if (input_cb(0, RETRO_DEVICE_KEYBOARD, 0, map[k]))
+            fkbkeys[k]=1;
+        else
+            fkbkeys[k]=0;
+}
+
+static void add_suborkey_input(unsigned port, uint32_t variant, uint8_t *suborkeys) {
+   unsigned k;
+   const uint32_t* map = suborkbmap;
+   for (k = 0 ; k < 0x65 ; k++)
+   	if (input_cb(0, RETRO_DEVICE_KEYBOARD, 0, map[k]))
+            suborkeys[k]=1;
+        else
+            suborkeys[k]=0;
+}
+
 static int mzx = 0, mzy = 0;
 
-void get_mouse_input(unsigned port, uint32 variant, uint32_t *mousedata)
+static void get_mouse_input(unsigned port, uint32_t variant, uint32_t *mousedata)
 {
    int min_width, min_height, max_width, max_height;
 
@@ -2481,7 +2820,7 @@ void get_mouse_input(unsigned port, uint32 variant, uint32_t *mousedata)
 
       if (_x != 0 || _y != 0)
       {
-         int32 raw = (_x + (0x7FFF + offset_x)) * max_width  / ((0x7FFF + offset_x) * 2);
+         int32_t raw = (_x + (0x7FFF + offset_x)) * max_width  / ((0x7FFF + offset_x) * 2);
          if (arkanoidmode == RetroArkanoidAbsMouse) {
              /* remap so full screen movement ends up within the encoder range 0-240
                 game board: 176 wide
@@ -2763,6 +3102,13 @@ static void FCEUD_UpdateInput(void)
       case RETRO_DEVICE_FC_FTRAINERA:
          add_powerpad_input(4, nes_input.type[4], &nes_input.PowerPadData);
          break;
+      case RETRO_DEVICE_FC_FKB:
+         add_fkb_input(4, nes_input.type[4], nes_input.FamilyKeyboardData);
+	 break;
+      case RETRO_DEVICE_FC_SUBORKB:
+      case RETRO_DEVICE_FC_PEC586KB:
+         add_suborkey_input(4, nes_input.type[4], nes_input.SuborKeyboardData);
+	 break;
    }
 
    if (input_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
@@ -2799,7 +3145,7 @@ static void FCEUD_UpdateInput(void)
          }
          else /* palette_next */
          {
-            if (new_palette_index < PAL_TOTAL - 1)
+            if ((unsigned long)new_palette_index < PAL_TOTAL - 1)
                new_palette_index++;
             else
                new_palette_index = 0;
@@ -2816,7 +3162,7 @@ static void FCEUD_UpdateInput(void)
       palette_switch_counter = 0;
 }
 
-void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
+static void FCEUD_Update(uint8_t *XBuf, int32_t *Buffer, int Count)
 {
 }
 
@@ -2827,10 +3173,28 @@ static void retro_run_blit(uint8_t *gfx)
    static unsigned int __attribute__((aligned(16))) d_list[32];
    void* texture_vram_p = NULL;
 #endif
-   unsigned incr   = 0;
    unsigned width  = 256;
    unsigned height = 240;
    unsigned pitch  = width * sizeof(bpp_t);
+
+#ifdef HAVE_HDPACK
+   if (hdnes_active)
+   {
+      const uint32_t *hdbuf = HDNes_ComposeFrame();
+      if (hdbuf)
+      {
+         unsigned scale   = HDNes_GetScale();
+         unsigned hwidth  = (NES_WIDTH - crop_overscan_h_left - crop_overscan_h_right) * scale;
+         unsigned hheight = (NES_HEIGHT - crop_overscan_v_top - crop_overscan_v_bottom) * scale;
+         size_t   stride  = (size_t)NES_WIDTH * scale;
+
+         video_cb(hdbuf + (size_t)crop_overscan_v_top * scale * stride
+                    + (size_t)crop_overscan_h_left * scale,
+               hwidth, hheight, stride * sizeof(uint32_t));
+         return;
+      }
+   }
+#endif
 
 #ifdef PSP
    if (crop_overscan)
@@ -2910,52 +3274,86 @@ static void retro_run_blit(uint8_t *gfx)
       width    = NES_WIDTH - crop_overscan_h_left - crop_overscan_h_right;
       width    = NES_NTSC_OUT_WIDTH(width);
       height   = NES_HEIGHT - crop_overscan_v_top - crop_overscan_v_bottom;
-      pitch    = width * sizeof(bpp_t);
+      pitch    = NES_NTSC_WIDTH * sizeof(bpp_t);
 
+      /* Pass ntsc_video_out directly to the frontend with the wider
+       * source pitch instead of memcpy'ing into a tightly-packed
+       * fceu_video_out. video_cb's pitch parameter already lets the
+       * frontend skip past the unused right margin per scanline; the
+       * memcpy was redundant. Saves ~580 KB per frame at 32 bpp full
+       * NES_NTSC_OUT_WIDTH * NES_HEIGHT - i.e. ~35 MB/s of bandwidth
+       * at 60 fps. */
       {
-         int32_t h_offset   = (crop_overscan_h_left ? NES_NTSC_OUT_WIDTH(crop_overscan_h_left) : 0);
-         int32_t v_offset   = crop_overscan_v_top;
+         int32_t h_offset = (crop_overscan_h_left ? NES_NTSC_OUT_WIDTH(crop_overscan_h_left) : 0);
+         int32_t v_offset = crop_overscan_v_top;
          const bpp_t *in = ntsc_video_out + h_offset + NES_NTSC_WIDTH * v_offset;
-         bpp_t *out      = fceu_video_out;
-
-         for (y = 0; y < height; y++)
-         {
-            memcpy(out, in, pitch);
-            in += NES_NTSC_WIDTH;
-            out += width;
-         }
+         video_cb(in, width, height, pitch);
       }
-      video_cb(fceu_video_out, width, height, pitch);
    }
    else
 #endif /* HAVE_NTSC_FILTER */
    {
-      incr   += (crop_overscan_h_left + crop_overscan_h_right);
       width  -= (crop_overscan_h_left + crop_overscan_h_right);
       height -= (crop_overscan_v_top + crop_overscan_v_bottom);
-      pitch  -= (crop_overscan_h_left + crop_overscan_h_right) * sizeof(bpp_t);
+      pitch   = width * sizeof(bpp_t);
       gfx    += (crop_overscan_v_top * 256) + crop_overscan_h_left;
 
       {
-         uint8_t *deemp = XDBuf + (gfx - XBuf);
-         for (y = 0; y < height; y++, gfx += incr, deemp += incr)
+         /* Try GET_CURRENT_SOFTWARE_FRAMEBUFFER for zero-copy: if the
+          * frontend can hand us its own scanout buffer, we write the
+          * pixel-format conversion directly into it and skip a round
+          * trip through fceu_video_out. */
+         struct retro_framebuffer fb = {0};
+         bpp_t *target = fceu_video_out;
+         size_t target_stride = (size_t)width;  /* in pixels */
+
+         fb.width  = width;
+         fb.height = height;
+         fb.access_flags = RETRO_MEMORY_ACCESS_WRITE;
+         if (environ_cb(RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER, &fb)
+               && fb.format == active_pixformat
+               && fb.data
+               && (fb.pitch % sizeof(bpp_t)) == 0)
          {
-            for (x = 0; x < width; x++, gfx++, deemp++)
+            target        = (bpp_t *)fb.data;
+            target_stride = fb.pitch / sizeof(bpp_t);
+            pitch         = fb.pitch;
+         }
+
+         /* Hoist loop-invariant decisions out of the hot per-pixel
+          * loop. The PPU writes a uniform colour_emphasis byte to
+          * every entry of XDBuf for a given scanline (ppu.c:683-685),
+          * so emphasis is constant per row - branch once per row, not
+          * per pixel. NSF and use_raw_palette flags don't change mid-
+          * frame either. */
+         {
+            const uint8_t *deemp_row = XDBuf + (gfx - XBuf);
+            const bool is_nsf        = (GameInfo->type == GIT_NSF);
+            const uint8_t pixel_mask = use_raw_palette ? 0x3F : 0xFF;
+
+            for (y = 0; y < height; y++)
             {
-               if (*deemp != 0 && GameInfo->type != GIT_NSF)
+               bpp_t *out_row = target + (size_t)y * target_stride;
+               uint8_t deemp = is_nsf ? 0 : deemp_row[0];
+
+               if (deemp != 0)
                {
-                  fceu_video_out[y * width + x] = retro_palette[256 + (*gfx & 0x3F) + ((*deemp & 0x07) << 6)];
+                  unsigned base = 256u + ((unsigned)(deemp & 0x07) << 6);
+                  for (x = 0; x < width; x++)
+                     out_row[x] = retro_palette[base + (gfx[x] & 0x3F)];
                }
                else
                {
-                  uint8 pixel_mask = use_raw_palette ? 0x3F : 0xFF;
-                  fceu_video_out[y * width + x] = retro_palette[*gfx & pixel_mask];
+                  for (x = 0; x < width; x++)
+                     out_row[x] = retro_palette[gfx[x] & pixel_mask];
                }
+               gfx       += 256;
+               deemp_row += 256;
             }
          }
-      }
 
-      video_cb(fceu_video_out, width, height, pitch);
+         video_cb(target, width, height, pitch);
+      }
    }
 #endif
 }
@@ -2972,9 +3370,21 @@ void retro_run(void)
    FCEUD_UpdateInput();
    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
 
+#ifdef HAVE_HDPACK
+   if (hdnes_active)
+      HDNes_FrameEnd();
+#endif
+
    retro_run_blit(gfx);
 
    stereo_filter_apply(sound, ssize);
+#ifdef HAVE_HDPACK
+   if (hdnes_active)
+   {
+      HDNes_AudioStateSync();
+      HDNes_MixAudio(sound, (size_t)ssize, sndsamplerate);
+   }
+#endif
    audio_batch_cb((const int16_t*)sound, ssize);
 }
 
@@ -2984,10 +3394,10 @@ size_t retro_serialize_size(void)
    {
       /* Something arbitrarily big.*/
       uint8_t *buffer = (uint8_t*)malloc(1000000);
-      memstream_set_buffer(buffer, 1000000);
+      if (!buffer)
+         return 0;
 
-      FCEUSS_Save_Mem();
-      serialize_size = memstream_get_last_size();
+      serialize_size = FCEUSS_Save_Mem(buffer, 1000000);
       free(buffer);
    }
 
@@ -3001,11 +3411,10 @@ bool retro_serialize(void *data, size_t size)
    if (geniestage == 1)
       return false;
 
-   if (size != retro_serialize_size())
+   if (!data || size != retro_serialize_size())
       return false;
 
-   memstream_set_buffer((uint8_t*)data, size);
-   FCEUSS_Save_Mem();
+   FCEUSS_Save_Mem(data, size);
    return true;
 }
 
@@ -3016,12 +3425,20 @@ bool retro_unserialize(const void * data, size_t size)
    if (geniestage == 1)
       return false;
 
-   if (size != retro_serialize_size())
+   /* The state file's own 16-byte header carries an explicit totalsize
+    * and ReadStateChunk already skips unknown chunk tags, so a strict
+    * size-equality check against the current build's serialize_size is
+    * not necessary for parser safety - and is actively harmful when
+    * SFORMAT contents change between builds (recent example: the FDS
+    * audio rewrite for #560 added/removed chunk tags, leaving older
+    * savestates a fixed delta smaller than the new core's expected
+    * size, with no recourse for the user).  Accept any buffer at least
+    * as large as the header; cap the upper end to a generous multiple
+    * of the current size as a sanity guard against pathological input. */
+   if (!data || size < 16 || size > retro_serialize_size() * 4)
       return false;
 
-   memstream_set_buffer((uint8_t*)data, size);
-   FCEUSS_Load_Mem();
-   return true;
+   return FCEUSS_Load_Mem(data, size) != 0;
 }
 
 static int checkGG(char c)
@@ -3038,7 +3455,7 @@ static int checkGG(char c)
 static int GGisvalid(const char *code)
 {
    size_t len = strlen(code);
-   uint32 i;
+   uint32_t i;
 
    if (len != 6 && len != 8)
       return 0;
@@ -3057,18 +3474,22 @@ void retro_cheat_reset(void)
 void retro_cheat_set(unsigned index, bool enabled, const char *code)
 {
    char name[256];
-   char temp[256];
+   char temp[1024];
    char *codepart;
-   uint16 a;
-   uint8  v;
+   uint16_t a;
+   uint8_t  v;
    int    c;
    int    type = 1;
 
    if (code == NULL)
       return;
 
-   sprintf(name, "N/A");
-   strcpy(temp, code);
+   /* Cheat strings can be arbitrarily long (multiple codes joined by
+    * separators). The previous strcpy into a 256-byte stack buffer was
+    * trivially overflowable. Use strlcpy and a larger buffer; truncate
+    * if necessary rather than overflow. */
+   strlcpy(name, "N/A", sizeof(name));
+   strlcpy(temp, code, sizeof(temp));
    codepart = strtok(temp, "+,;._ ");
 
    while (codepart)
@@ -3548,17 +3969,64 @@ bool retro_load_game(const struct retro_game_info *info)
             sizeof(content_path));
    }
 
+#ifdef HAVE_HDPACK
+   /* Look for <system_dir>/HdPacks/<rom name>/hires.txt before pixel
+    * format negotiation: HD composition outputs XRGB8888 regardless of
+    * the build's native SD format. */
+   hd_pack_pending = 0;
+   {
+      struct retro_variable hd_var;
+      const char *hd_sys_dir = NULL;
+      int hd_enabled = 1;
+
+      hd_var.key = "fceumm_hdpacks";
+      hd_var.value = NULL;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &hd_var) && hd_var.value)
+         hd_enabled = (strcmp(hd_var.value, "disabled") != 0);
+
+      if (hd_enabled &&
+            environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &hd_sys_dir) &&
+            hd_sys_dir)
+         hd_pack_pending = HDNes_LoadPack(hd_sys_dir, content_path);
+   }
+
+   if (hd_pack_pending)
+   {
+      pixformat = RETRO_PIXEL_FORMAT_XRGB8888;
+      if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &pixformat))
+      {
+         log_cb.log(RETRO_LOG_INFO, "HD pack found - using XRGB8888 output.\n");
+         active_pixformat = pixformat;
+      }
+      else
+      {
+         log_cb.log(RETRO_LOG_WARN, "Frontend refused XRGB8888; HD pack disabled.\n");
+         HDNes_Unload();
+         hd_pack_pending = 0;
+      }
+   }
+
+   if (!hd_pack_pending)
+#endif
+   {
 #ifdef FRONTEND_SUPPORTS_RGB888
    pixformat = RETRO_PIXEL_FORMAT_XRGB8888;
    if(environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &pixformat))
+   {
       log_cb.log(RETRO_LOG_INFO, "Frontend supports RGBX888 - will use that instead of XRGB1555.\n");
+      active_pixformat = pixformat;
+   }
 #else
    #if FRONTEND_SUPPORTS_RGB565
       pixformat = RETRO_PIXEL_FORMAT_RGB565;
       if(environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &pixformat))
+      {
          log_cb.log(RETRO_LOG_INFO, "Frontend supports RGB565 - will use that instead of XRGB1555.\n");
+         active_pixformat = pixformat;
+      }
    #endif
 #endif
+   }
 
    /* initialize some of the default variables */
 #ifdef GEKKO
@@ -3607,11 +4075,85 @@ bool retro_load_game(const struct retro_game_info *info)
    FCEUI_SetSoundVolume(sndvolume);
    FCEUI_Sound(sndsamplerate);
 
+#ifdef HAVE_HDPACK
+   /* Apply the pack's <patch> IPS (SHA-1 verified) to an in-memory
+    * copy so packs that rely on soft-patched game behaviour - e.g.
+    * button-driven overlay triggers - work out of the box, matching
+    * Mesen. */
+   if (hd_patched_rom)
+   {
+      free(hd_patched_rom);
+      hd_patched_rom = NULL;
+   }
+   if (hd_pack_pending)
+   {
+      const uint8_t *hd_rom      = content_data;
+      size_t hd_rom_size         = content_size;
+      uint8_t *hd_file_buf       = NULL;
+      size_t hd_patched_size     = 0;
+
+      /* Fall back to the classic game_info buffer, then to reading the
+       * content file, for frontends without GAME_INFO_EXT or with
+       * need_fullpath loading. */
+      if (!hd_rom && info && info->data && info->size)
+      {
+         hd_rom      = (const uint8_t *)info->data;
+         hd_rom_size = info->size;
+      }
+      if (!hd_rom && content_path[0])
+      {
+         RFILE *hd_f = filestream_open(content_path,
+               RETRO_VFS_FILE_ACCESS_READ,
+               RETRO_VFS_FILE_ACCESS_HINT_NONE);
+         if (hd_f)
+         {
+            int64_t hd_len = filestream_get_size(hd_f);
+            if (hd_len > 0)
+            {
+               hd_file_buf = (uint8_t*)malloc((size_t)hd_len);
+               if (hd_file_buf &&
+                     filestream_read(hd_f, hd_file_buf, hd_len) == hd_len)
+               {
+                  hd_rom      = hd_file_buf;
+                  hd_rom_size = (size_t)hd_len;
+               }
+            }
+            filestream_close(hd_f);
+         }
+      }
+
+      if (hd_rom &&
+            HDNes_PatchRom(hd_rom, hd_rom_size, &hd_patched_rom,
+               &hd_patched_size))
+      {
+         content_data = hd_patched_rom;
+         content_size = hd_patched_size;
+      }
+      if (hd_file_buf)
+         free(hd_file_buf);
+   }
+#endif
+
    GameInfo = (FCEUGI*)FCEUI_LoadGame(content_path, content_data, content_size,
          frontend_post_load_init);
 
    if (!GameInfo)
    {
+#ifdef HAVE_HDPACK
+      HDNes_Unload();
+      hd_pack_pending = 0;
+#endif
+      /* On load failure the libretro frontend won't call retro_unload_game,
+       * so free the framebuffer we just allocated to avoid leaking ~256 KB
+       * per failed load. */
+#if defined(_3DS)
+      if (fceu_video_out)
+         linearFree(fceu_video_out);
+#elif !defined(PSP)
+      if (fceu_video_out)
+         free(fceu_video_out);
+#endif
+      fceu_video_out = NULL;
 #if 0
       /* An error message here is superfluous - the frontend
        * will report that content loading has failed */
@@ -3619,6 +4161,35 @@ bool retro_load_game(const struct retro_game_info *info)
 #endif
       return false;
    }
+
+   /* Piggyback the libretro-side turbo toggle phase into the core's
+    * savestate (#75).  FCEUI_LoadGame just finished populating SFMDATA[]
+    * with the mapper's chunks via AddExState; appending one more chunk
+    * here for the turbo counters makes them save/restore alongside
+    * everything else.  Without this, the toggle phase isn't part of
+    * the state - host and client in a netplay session can drift on
+    * the counter even after exchanging savestates, producing input
+    * desync whenever the turbo button is held.  The "TBTG" tag is
+    * unused by any mapper, and ReadStateChunk's skip-unknown logic
+    * handles older states gracefully (the array stays at retro_reset's
+    * zero initialisation, which is the post-#75-fix steady state). */
+   AddExState(turbo_button_toggle, sizeof(turbo_button_toggle), 0, "TBTG");
+
+#ifdef HAVE_HDPACK
+   if (hd_pack_pending)
+   {
+      /* Game is loaded: resolve CHR ROM info, fallback tiles, sprite
+       * limit and audio, then raise hdnes_active. */
+      HDNes_PostLoadInit();
+      if (hdnes_active)
+      {
+         HDNes_InstallAudioHandlers();
+         if (HDNes_HasAudio())
+            AddExState(&hdnes_audio_ss, sizeof(hdnes_audio_ss), 0, "HDAU");
+      }
+      hd_pack_pending = 0;
+   }
+#endif
 
    if (palette_switch_enabled)
       environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc_ps);
@@ -3645,6 +4216,13 @@ bool retro_load_game(const struct retro_game_info *info)
    check_variables(true);
    stereo_filter_init();
    PowerNES();
+
+#ifdef HAVE_HDPACK
+   /* PowerNES resets every bus handler to the defaults and lets the
+    * mapper reinstall its own, so the HD audio registers must be
+    * claimed after it (same as in retro_reset). */
+   HDNes_InstallAudioHandlers();
+#endif
 
    FCEUI_DisableFourScore(1);
 
@@ -3752,6 +4330,14 @@ bool retro_load_game_special(
 
 void retro_unload_game(void)
 {
+#ifdef HAVE_HDPACK
+   HDNes_Unload();
+   if (hd_patched_rom)
+   {
+      free(hd_patched_rom);
+      hd_patched_rom = NULL;
+   }
+#endif
    FCEUI_CloseGame();
 #if defined(_3DS)
    if (fceu_video_out)
@@ -3785,7 +4371,7 @@ void *retro_get_memory_data(unsigned type)
             return iNESCart.SaveGame[0];
          else if (UNIFCart.battery && UNIFCart.SaveGame[0] && UNIFCart.SaveGameLen[0])
             return UNIFCart.SaveGame[0];
-         else if (GameInfo->type == GIT_FDS)
+         else if (GameInfo && GameInfo->type == GIT_FDS)
             return FDSROM_ptr();
          else
             data = NULL;
@@ -3812,7 +4398,7 @@ size_t retro_get_memory_size(unsigned type)
             size = iNESCart.SaveGameLen[0];
          else if (UNIFCart.battery && UNIFCart.SaveGame[0] && UNIFCart.SaveGameLen[0])
             size = UNIFCart.SaveGameLen[0];
-         else if (GameInfo->type == GIT_FDS)
+         else if (GameInfo && GameInfo->type == GIT_FDS)
             size = FDSROM_size();
          else
             size = 0;

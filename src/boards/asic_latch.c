@@ -22,26 +22,26 @@
 #include "asic_latch.h"
 
 static void (*Latch_cbSync)();
-static uint16 Latch_from, Latch_to;
-static void (*Latch_cbWrite)(uint16*, uint8*, uint8);
-uint16 Latch_address;
-uint8 Latch_data;
+static uint16_t Latch_from, Latch_to;
+static void (*Latch_cbWrite)(uint16_t*, uint8_t*, uint8_t);
+uint16_t Latch_address;
+uint8_t Latch_data;
 
 static SFORMAT Latch_state[] = {
-	{&Latch_address, 2, "LATA" },
+	{&Latch_address, 2 | FCEUSTATE_RLSB, "LATA" },
 	{&Latch_data,    1, "LATD" },
 	{ 0 }
 };
 
 DECLFW (Latch_write) {
-	uint16 newAddress = A &0xFFFF;
+	uint16_t newAddress = A &0xFFFF;
 	if (Latch_cbWrite) Latch_cbWrite(&newAddress, &V, CartBR(A));
 	Latch_address = newAddress;
 	Latch_data = V;
 	Latch_cbSync();
 }
 
-void Latch_clear () {
+void Latch_clear(void) {
 	Latch_address = 0;
 	Latch_data = 0;
 	Latch_cbSync();
@@ -53,14 +53,14 @@ static void Latch_setHandlers() {
 	SetWriteHandler(Latch_from, Latch_to, Latch_write);
 }
 
-static void Latch_configure (void (*sync)(), uint16 from, uint16 to, void (*write)(uint16*, uint8*, uint8)) {
+static void Latch_configure (void (*sync)(), uint16_t from, uint16_t to, void (*write)(uint16_t*, uint8_t*, uint8_t)) {
 	Latch_cbSync = sync;
 	Latch_from = from;
 	Latch_to = to;
 	Latch_cbWrite = write;
 }
 
-void Latch_activate (uint8 clear, void (*sync)(), uint16 from, uint16 to, void (*write)(uint16*, uint8*, uint8)) {
+void Latch_activate (uint8_t clear, void (*sync)(), uint16_t from, uint16_t to, void (*write)(uint16_t*, uint8_t*, uint8_t)) {
 	Latch_configure(sync, from, to, write);
 	Latch_setHandlers();
 	if (clear)
@@ -69,7 +69,7 @@ void Latch_activate (uint8 clear, void (*sync)(), uint16 from, uint16 to, void (
 		Latch_cbSync();
 }
 
-void Latch_addExState () {
+void Latch_addExState(void) {
 	AddExState(Latch_state, ~0, 0, 0);
 }
 
@@ -77,12 +77,13 @@ void Latch_restore (int version) {
 	Latch_cbSync();
 }
 
-void Latch_power () {
+void Latch_power(void) {
 	Latch_setHandlers();
 	Latch_clear();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
-void Latch_init (CartInfo *info, void (*sync)(), uint16 from, uint16 to, void (*write)(uint16*, uint8*, uint8)) {
+void Latch_init (CartInfo *info, void (*sync)(), uint16_t from, uint16_t to, void (*write)(uint16_t*, uint8_t*, uint8_t)) {
 	Latch_addExState();
 	Latch_configure(sync, from, to, write);
 	info->Power = Latch_power;

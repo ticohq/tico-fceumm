@@ -35,8 +35,8 @@
 #include "input.h"
 #include "vsuni.h"
 
-uint8 *XBuf = NULL;
-uint8 *XDBuf = NULL;
+uint8_t *XBuf = NULL;
+uint8_t *XDBuf = NULL;
 int show_crosshair = 0;
 
 void FCEU_KillVirtualVideo(void)
@@ -53,12 +53,17 @@ int FCEU_InitVirtualVideo(void)
 {
    /* 256 bytes per scanline, * 240 scanline maximum, +8 for alignment, */
    if (!XBuf)
-      XBuf = (uint8*)(FCEU_malloc(256 * (256 + extrascanlines + 8)));
+      XBuf = (uint8_t*)(FCEU_malloc(256 * (256 + extrascanlines + 8)));
    if (!XDBuf)
-      XDBuf = (uint8*)(FCEU_malloc(256 * (256 + extrascanlines + 8)));
+      XDBuf = (uint8_t*)(FCEU_malloc(256 * (256 + extrascanlines + 8)));
 
    if (!XBuf || !XDBuf)
+   {
+      /* Free whatever did allocate to avoid leaking on retry */
+      if (XBuf) { free(XBuf); XBuf = NULL; }
+      if (XDBuf) { free(XDBuf); XDBuf = NULL; }
       return 0;
+   }
 
    memset(XBuf, 128, 256 * (256 + extrascanlines + 8));
    memset(XDBuf, 0, 256 * (256 + extrascanlines + 8));
@@ -80,7 +85,7 @@ void FCEU_PutImage(void)
 		FCEU_DrawInput(XBuf);
 }
 
-void FCEU_PutImageDummy(void)
+static void FCEU_PutImageDummy(void)
 {
 }
 
@@ -93,7 +98,11 @@ void FCEU_DispMessage(enum retro_log_level level, unsigned duration, const char 
       return;
 
    va_start(ap, format);
-   vsprintf(msg, format, ap);
+   /* Use vsnprintf to bound the write to msg[]. The previous vsprintf
+    * had no length cap; format strings are currently all literals with
+    * controlled args, but a future caller passing a long ROM name into
+    * a %s format would overrun the 512-byte buffer. */
+   vsnprintf(msg, sizeof(msg), format, ap);
    va_end(ap);
 
    FCEUD_DispMessage(level, duration, msg);

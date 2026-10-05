@@ -23,7 +23,7 @@
 #include "asic_mmc3.h"
 
 static void (*QJ_cbSync)();
-static uint8 QJ_reg;
+static uint8_t QJ_reg;
 
 static SFORMAT QJ_state[] = {
 	{&QJ_reg,   1, "QJRG" },
@@ -38,16 +38,16 @@ void QJ_syncCHR (int AND, int OR) {
 	MMC3_syncCHR(0x7F &AND, QJ_reg <<7 &AND | OR &~AND);
 }
 
-void QJ_syncMirror () {
+void QJ_syncMirror(void) {
 	MMC3_syncMirror();
 }
 
-DECLFW (QJ_writeWRAM) {
+static DECLFW (QJ_writeWRAM) {
 	QJ_reg = V;
 	QJ_cbSync();
 }
 
-void QJ_clear () {
+void QJ_clear(void) {
 	QJ_reg = 0;
 	QJ_cbSync();
 }
@@ -59,7 +59,7 @@ static void QJ_configure (void (*sync)()) {
 	QJ_cbSync = sync;
 }
 
-void QJ_activate (uint8 clear, void (*sync)()) {
+void QJ_activate (uint8_t clear, void (*sync)()) {
 	MMC3_activate(clear, sync, MMC3_TYPE_SHARP, NULL, NULL, NULL, QJ_writeWRAM);
 	QJ_configure(sync);
 	QJ_setHandlers();
@@ -69,7 +69,7 @@ void QJ_activate (uint8 clear, void (*sync)()) {
 		QJ_cbSync();
 }
 
-void QJ_addExState () {
+void QJ_addExState(void) {
 	AddExState(QJ_state, ~0, 0, 0);
 }
 
@@ -77,7 +77,7 @@ void QJ_restore (int version) {
 	QJ_cbSync();
 }
 
-void QJ_power () {
+void QJ_power(void) {
 	MMC3_power();
 	QJ_setHandlers();
 	QJ_clear();

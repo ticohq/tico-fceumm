@@ -20,13 +20,13 @@
 
 #include "mapinc.h"
 
-static uint8 latch_data;
-static uint32 latch_addr;
-static uint8 dipswitch;
+static uint8_t latch_data;
+static uint32_t latch_addr;
+static uint8_t dipswitch;
 
 static SFORMAT StateRegs[] =
 {
-	{ &latch_addr, 4, "ADDR" },
+	{ &latch_addr, 4 | FCEUSTATE_RLSB, "ADDR" },
 	{ &latch_data, 1, "DATA" },
 	{ &dipswitch,  1, "DIPS" },
 	{ 0 }

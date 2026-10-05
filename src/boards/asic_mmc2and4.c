@@ -22,8 +22,8 @@
 #include "asic_mmc2and4.h"
 
 static void (*MMC24_cbSync)();
-static uint8 MMC24_reg[6];
-static uint8 MMC24_latch[2];
+static uint8_t MMC24_reg[6];
+static uint8_t MMC24_latch[2];
 
 static SFORMAT MMC24_state[] = {
 	{ MMC24_reg,    6, "MC2R" },
@@ -54,11 +54,11 @@ void MMC24_syncCHR (int AND, int OR) {
 	setchr4(0x1000, MMC24_reg[3 +MMC24_latch[1]] &AND |OR);
 }
 
-void MMC24_syncMirror () {
+void MMC24_syncMirror(void) {
 	setmirror(MMC24_reg[5] &1? MI_H: MI_V);
 }
 
-static void FP_FASTAPASS(1) MMC24_trapPPUAddressChange (uint32 A) {
+static void FP_FASTAPASS(1) MMC24_trapPPUAddressChange (uint32_t A) {
 	if ((A &0x2FF0) == 0xFD0 || (A &0x2FF0) == 0xFE0) {
 		MMC24_latch[A >>12 &1] = A >>5 &1;
 		MMC24_cbSync();
@@ -70,7 +70,7 @@ DECLFW (MMC24_write) {
 	MMC24_cbSync();
 }
 
-void MMC24_clear () {
+void MMC24_clear(void) {
 	MMC24_reg[0] = 0; MMC24_reg[1] = 0; MMC24_reg[2] = 2; MMC24_reg[3] = 0; MMC24_reg[4] = 0; MMC24_reg[5] = 0;
 	MMC24_latch[0] = 0; MMC24_latch[1] = 0;
 	MMC24_cbSync();
@@ -86,7 +86,7 @@ static void MMC24_configure (void (*sync)()) {
 	MMC24_cbSync = sync;
 }
 
-void MMC24_activate (uint8 clear, void (*sync)()) {
+void MMC24_activate (uint8_t clear, void (*sync)()) {
 	MMC24_configure(sync);
 	MMC24_setHandlers();
 	if (clear)
@@ -95,7 +95,7 @@ void MMC24_activate (uint8 clear, void (*sync)()) {
 		MMC24_cbSync();
 }
 
-void MMC24_addExState () {
+void MMC24_addExState(void) {
 	AddExState(MMC24_state, ~0, 0, 0);
 }
 
@@ -103,9 +103,10 @@ void MMC24_restore (int version) {
 	MMC24_cbSync();
 }
 
-void MMC24_power () {
+void MMC24_power(void) {
 	MMC24_setHandlers();
 	MMC24_clear();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
 void MMC24_init (CartInfo *info, void (*sync)()) {

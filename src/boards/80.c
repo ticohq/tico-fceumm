@@ -21,10 +21,10 @@
 
 #include "mapinc.h"
 
-static uint8 preg[3], creg[6], isExMirr;
-static uint8 mirr, cmd, wram_enable, wram[256];
-static uint8 mcache[8];
-static uint32 lastppu;
+static uint8_t preg[3], creg[6], isExMirr;
+static uint8_t mirr, cmd, wram_enable, wram[256];
+static uint8_t mcache[8];
+static uint32_t lastppu;
 
 static SFORMAT StateRegs80[] =
 {
@@ -42,7 +42,7 @@ static SFORMAT StateRegs95[] =
 	{ preg, 3, "PREG" },
 	{ creg, 6, "CREG" },
 	{ mcache, 8, "MCCH" },
-	{ &lastppu, 4, "LPPU" },
+	{ &lastppu, 4 | FCEUSTATE_RLSB, "LPPU" },
 	{ 0 }
 };
 
@@ -51,7 +51,7 @@ static SFORMAT StateRegs207[] =
 	{ preg, 3, "PREG" },
 	{ creg, 6, "CREG" },
 	{ mcache, 8, "MCCH" },
-	{ &lastppu, 4, "LPPU" },
+	{ &lastppu, 4 | FCEUSTATE_RLSB, "LPPU" },
 	{ 0 }
 };
 
@@ -121,8 +121,8 @@ static DECLFW(M95Write) {
 	}
 }
 
-static void FP_FASTAPASS(1) MExMirrPPU(uint32 A) {
-	static int8 lastmirr = -1, curmirr;
+static void FP_FASTAPASS(1) MExMirrPPU(uint32_t A) {
+	static int8_t lastmirr = -1, curmirr;
 	if (A < 0x2000) {
 		lastppu = A >> 10;
 		curmirr = mcache[lastppu];

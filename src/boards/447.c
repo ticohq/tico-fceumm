@@ -22,38 +22,36 @@
 #include "asic_vrc2and4.h"
 #include "cartram.h"
 
-static uint8 reg;
-static uint8 dip;
-
-static SFORMAT stateRegs[] = {
-	{ &reg, 1, "EXP0" },
-	{ &dip, 1, "DIPS" },
-	{ 0 }
-};
+static uint8_t submapper;
+static uint8_t reg;
+static uint8_t pad;
 
 static void sync () {
-	VRC24_syncPRG(0x0F, reg <<4);
-	VRC24_syncCHR(0x7F, reg <<7);
+	if (submapper == 2) {
+		VRC24_syncPRG(0x1F, reg <<4 &~0x1F);
+		VRC24_syncCHR(0x7F, reg <<6 &~0x7F);
+	} else {
+		VRC24_syncPRG(0x0F, reg <<4);
+		VRC24_syncCHR(0x7F, reg <<7);
+	}
 	VRC24_syncMirror();
 	VRC24_syncWRAM(0);
 }
 
-static int getPRGBank (uint8 bank) {
-	if (reg &4) {
-		if (~reg &2)
-			return VRC24_getPRGBank(bank &1) &~2 | bank &2;
-		else
-			return VRC24_getPRGBank(bank &1);
+static int getPRGBank (uint8_t bank) {
+	if (reg &0x04) {
+		int mask = reg &(submapper == 0? 0x02: 0x08) ? 1: 3;
+		return VRC24_getPRGBank(bank &1) &~mask | bank &mask;
 	} else
 		return VRC24_getPRGBank(bank);
 }
 
 static DECLFR (readPRG) {
-	return CartBR(reg &8? (A &~3 | dip &3): A);
+	return CartBR(reg &0x08 && ~reg &0x04? (A &~0x03 | pad &0x03): A);
 }
 
 static DECLFW (writeReg) {
-	if (~reg &1) {
+	if (~reg &0x01) {
 		reg = A &0xFF;
 		sync();
 	}
@@ -62,21 +60,26 @@ static DECLFW (writeReg) {
 
 static void power (void) {
 	reg = 0;
-	dip = 0;
+	pad = 0;
 	VRC24_power();
-	SetReadHandler(0x8000, 0xFFFF, readPRG);
+	if (submapper == 0 || submapper == 2) SetReadHandler(0x8000, 0xFFFF, readPRG);
 }
 
 static void reset (void) {
 	reg = 0;
-	dip++;
-	sync();
+	pad++;
+	VRC24_clear();
 }
 
 void Mapper447_Init (CartInfo *info) {
-	VRC4_init(info, sync, 0x04, 0x08, 0, getPRGBank, NULL, NULL, writeReg, NULL );
+	submapper = info->submapper;
+	if (submapper == 2)
+		VRC4_init(info, sync, 0x02, 0x04, 0, getPRGBank, NULL, NULL, writeReg, NULL );
+	else
+		VRC4_init(info, sync, 0x04, 0x08, 0, getPRGBank, NULL, NULL, writeReg, NULL );
 	WRAM_init(info, 2);
 	info->Power = power;
 	info->Reset = reset;
-	AddExState(stateRegs, ~0, 0, 0);
+	AddExState(&reg, 1, 0, "EXPR");
+	if (submapper == 0) AddExState(&pad, 1, 0, "DIPS");
 }

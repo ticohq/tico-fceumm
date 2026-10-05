@@ -24,10 +24,10 @@
 #include "cartram.h"
 #include "../fds_apu.h"
 
-static uint8 reg;
-static uint8 latch;
-static uint8 counting;
-static uint16 counter;
+static uint8_t reg;
+static uint8_t latch;
+static uint8_t counting;
+static uint16_t counter;
 
 static SFORMAT stateRegs[] ={
 	{ &reg, 1, "REGM" },
@@ -89,6 +89,7 @@ static void power () {
 	SetWriteHandler(0x5000, 0x57FF, writeReg);
 	SetWriteHandler(0x6000, 0x7FFF, CartBW);
 	reset();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
 static void stateRestore (int version) {

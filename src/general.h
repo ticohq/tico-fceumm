@@ -1,9 +1,9 @@
 #ifndef _FCEU_GENERAL_H
 #define _FCEU_GENERAL_H
 
-extern uint32 uppow2(uint32 n);
+extern uint32_t uppow2(uint32_t n);
 
-char *FCEU_MakeFName(int type, int id1, char *cd1);
+char *FCEU_MakeFName(int type, int id1, const char *cd1);
 
 enum FILE_TYPES
 {

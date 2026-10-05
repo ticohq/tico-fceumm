@@ -21,7 +21,7 @@
 #include "mapinc.h"
 #include "latch.h"
 
-static uint16 outerbank = 0;
+static uint16_t outerbank = 0;
 
 static void Sync(void) {
 	setprg16(0x8000, (outerbank >> 2) | (latch.data & 7));
@@ -52,5 +52,5 @@ void Mapper128_Init(CartInfo *info) {
 	Latch_Init(info, Sync, NULL, 0, 0);
     info->Power = M128Power;
     info->Reset = M128Reset;
-    AddExState(&outerbank, 2, 0, "BANK");
+    AddExState(&outerbank, 2, 1, "BANK");
 }

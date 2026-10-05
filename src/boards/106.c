@@ -20,15 +20,15 @@
 
 #include "mapinc.h"
 
-static uint8 reg[16], IRQa;
-static uint32 IRQCount;
-static uint8 *WRAM = NULL;
-static uint32 WRAMSIZE;
+static uint8_t reg[16], IRQa;
+static uint32_t IRQCount;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
 
 static SFORMAT StateRegs[] =
 {
 	{ &IRQa, 1, "IRQA" },
-	{ &IRQCount, 4, "IRQC" },
+	{ &IRQCount, 4 | FCEUSTATE_RLSB, "IRQC" },
 	{ reg, 16, "REGS" },
 	{ 0 }
 };
@@ -78,7 +78,7 @@ static void M106Close(void) {
 	WRAM = NULL;
 }
 
-void FP_FASTAPASS(1) M106CpuHook(int a) {
+static void FP_FASTAPASS(1) M106CpuHook(int a) {
 	if (IRQa) {
 		IRQCount += a;
 		if (IRQCount > 0x10000) {
@@ -100,7 +100,7 @@ void Mapper106_Init(CartInfo *info) {
 	GameStateRestore = StateRestore;
 
 	WRAMSIZE = 8192;
-	WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 	AddExState(WRAM, WRAMSIZE, 0, "WRAM");
 

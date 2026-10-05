@@ -20,18 +20,18 @@
 
 #include "mapinc.h"
 
-static uint8 is48;
-static uint8 regs[8], mirr;
-static uint8 IRQa;
-static int16 IRQCount, IRQLatch;
+static uint8_t is48;
+static uint8_t regs[8], mirr;
+static uint8_t IRQa;
+static int16_t IRQCount, IRQLatch;
 
 static SFORMAT StateRegs[] =
 {
 	{ regs, 8, "PREG" },
 	{ &mirr, 1, "MIRR" },
 	{ &IRQa, 1, "IRQA" },
-	{ &IRQCount, 2, "IRQC" },
-	{ &IRQLatch, 2, "IRQL" },
+	{ &IRQCount, 2 | FCEUSTATE_RLSB, "IRQC" },
+	{ &IRQLatch, 2 | FCEUSTATE_RLSB, "IRQL" },
 	{ 0 }
 };
 

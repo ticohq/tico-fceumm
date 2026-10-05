@@ -22,29 +22,31 @@
 #ifndef _FCEU_INES_H
 #define _FCEU_INES_H
 
+#include "file.h"
+
 typedef struct {
 	char ID[4];		/*NES^Z*/
-	uint8 ROM_size;
-	uint8 VROM_size;
-	uint8 ROM_type;
-	uint8 ROM_type2;
-	uint8 ROM_type3;
-	uint8 upper_PRG_CHR_size;
-	uint8 PRGRAM_size;
-	uint8 CHRRAM_size;
-	uint8 Region;
-	uint8 VS_hardware;
-	uint8 MiscRoms;
-	uint8 ExpDevice;
+	uint8_t ROM_size;
+	uint8_t VROM_size;
+	uint8_t ROM_type;
+	uint8_t ROM_type2;
+	uint8_t ROM_type3;
+	uint8_t upper_PRG_CHR_size;
+	uint8_t PRGRAM_size;
+	uint8_t CHRRAM_size;
+	uint8_t Region;
+	uint8_t VS_hardware;
+	uint8_t MiscRoms;
+	uint8_t ExpDevice;
 } iNES_HEADER;
 
-extern uint8 *trainerpoo;
-extern uint8 *ROM;
-extern uint8 *VROM;
-extern uint8 *MiscROM;
-extern uint32 ROM_size;		/* prg size in 16K chunks */
-extern uint32 VROM_size;	/* chr size in 8K chunks */
-extern uint32 MiscROM_size;
+extern uint8_t *trainerpoo;
+extern uint8_t *ROM;
+extern uint8_t *VROM;
+extern uint8_t *MiscROM;
+extern uint32_t ROM_size;		/* prg size in 16K chunks */
+extern uint32_t VROM_size;	/* chr size in 8K chunks */
+extern uint32_t MiscROM_size;
 extern iNES_HEADER head;
 
 void NSFVRC6_Init(void);
@@ -177,7 +179,6 @@ void Mapper166_Init(CartInfo *);
 void Mapper167_Init(CartInfo *);
 void Mapper168_Init(CartInfo *);
 void Mapper170_Init(CartInfo *);
-void Mapper171_Init(CartInfo *);
 void Mapper172_Init(CartInfo *);
 void Mapper173_Init(CartInfo *);
 void Mapper174_Init(CartInfo *);
@@ -251,6 +252,7 @@ void Mapper252_Init(CartInfo *);
 void Mapper253_Init(CartInfo *);
 void Mapper254_Init(CartInfo *);
 void Mapper255_Init(CartInfo *);
+void Mapper264_Init(CartInfo *);
 void Mapper270_Init(CartInfo *);
 void Mapper272_Init(CartInfo *);
 void Mapper273_Init(CartInfo *);
@@ -273,12 +275,16 @@ void Mapper288_Init(CartInfo *);
 void Mapper293_Init(CartInfo *);
 void Mapper294_Init(CartInfo *);
 void Mapper297_Init(CartInfo *);
+void Mapper301_Init(CartInfo *);
 void Mapper310_Init(CartInfo *);
 void Mapper319_Init(CartInfo *);
 void Mapper321_Init(CartInfo *);
 void Mapper326_Init(CartInfo *);
 void Mapper330_Init(CartInfo *);
 void Mapper334_Init(CartInfo *);
+void Mapper340_Init(CartInfo *);
+void Mapper341_Init(CartInfo *);
+void Mapper343_Init(CartInfo *);
 void Mapper351_Init(CartInfo *);
 void Mapper352_Init(CartInfo *);
 void Mapper353_Init(CartInfo *);
@@ -330,6 +336,7 @@ void Mapper401_Init(CartInfo *);
 void Mapper403_Init(CartInfo *);
 void Mapper404_Init(CartInfo *);
 void Mapper406_Init(CartInfo *);
+void Mapper408_Init(CartInfo *);
 void Mapper409_Init(CartInfo *);
 void Mapper410_Init(CartInfo *);
 void Mapper411_Init(CartInfo *);
@@ -424,6 +431,7 @@ void Mapper511_Init(CartInfo *);
 void Mapper512_Init(CartInfo *);
 void Mapper514_Init(CartInfo *);
 void Mapper516_Init(CartInfo *);
+void Mapper518_Init(CartInfo *);
 void Mapper520_Init(CartInfo *);
 void Mapper523_Init(CartInfo *);
 void Mapper528_Init(CartInfo *);
@@ -484,7 +492,34 @@ void Mapper591_Init(CartInfo *);
 void Mapper592_Init(CartInfo *);
 void Mapper594_Init(CartInfo *);
 void Mapper595_Init(CartInfo *);
-
+void Mapper596_Init(CartInfo *);
+void Mapper597_Init(CartInfo *);
+void Mapper598_Init(CartInfo *);
+void Mapper599_Init(CartInfo *);
+void Mapper603_Init(CartInfo *);
+void Mapper605_Init(CartInfo *);
+void Mapper606_Init(CartInfo *);
+void Mapper607_Init(CartInfo *);
+void Mapper608_Init(CartInfo *);
+void Mapper609_Init(CartInfo *);
+void Mapper610_Init(CartInfo *);
+void Mapper611_Init(CartInfo *);
+void Mapper612_Init(CartInfo *);
+void Mapper613_Init(CartInfo *);
+void Mapper614_Init(CartInfo *);
+void Mapper615_Init(CartInfo *);
+void Mapper616_Init(CartInfo *);
+void Mapper617_Init(CartInfo *);
+void Mapper618_Init(CartInfo *);
+void Mapper619_Init(CartInfo *);
+void Mapper620_Init(CartInfo *);
+void Mapper621_Init(CartInfo *);
+void Mapper622_Init(CartInfo *);
+void Mapper623_Init(CartInfo *);
+void Mapper624_Init(CartInfo *);
+void Mapper625_Init(CartInfo *);
 void FFE_Init(CartInfo *);
+
+int iNESLoad(const char *name, FCEUFILE *fp);
 
 #endif

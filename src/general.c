@@ -30,6 +30,7 @@
 #include <unistd.h>
 #endif
 
+#include <compat/strl.h>
 #include <file/file_path.h>
 
 #include "fceu-types.h"
@@ -46,14 +47,14 @@ static char BaseDirectory[2048] = {0};
 
 void FCEUI_SetBaseDirectory(const char *dir)
 {
-	strncpy(BaseDirectory, dir, 2047);
-	BaseDirectory[2047] = 0;
+	strlcpy(BaseDirectory, dir, sizeof(BaseDirectory));
 }
 
-char *FCEU_MakeFName(int type, int id1, char *cd1)
+char *FCEU_MakeFName(int type, int id1, const char *cd1)
 {
    char tmp[4096 + 512] = {0}; /* +512 for no reason :D */
    char *ret      = 0;
+   size_t len;
 
    switch (type)
    {
@@ -75,21 +76,33 @@ char *FCEU_MakeFName(int type, int id1, char *cd1)
 
    FCEU_printf(" FCEU_MakeFName: %s\n", tmp);
 
-   ret = (char*)malloc(strlen(tmp) * sizeof(char) + 1);
-   strcpy(ret, tmp);
+   len = strlen(tmp) + 1;
+   ret = (char*)malloc(len);
+   if (!ret) return NULL;
+   strlcpy(ret, tmp, len);
 
    return(ret);
 }
 
-uint32 uppow2(uint32 n)
+uint32_t uppow2(uint32_t n)
 {
    int x;
 
+   if (n == 0)
+      return 0;
+
+   /* If n already has bit 31 set and isn't exactly 0x80000000, the next
+    * power of two would be 1u << 32 which is undefined; clamp to 0x80000000
+    * instead so callers don't end up with a wrap-to-0 allocation that's
+    * smaller than the requested size. */
+   if (n > 0x80000000u)
+      return 0x80000000u;
+
    for (x = 31; x >= 0; x--)
-      if (n & (1 << x))
+      if (n & (1u << x))
       {
-         if ((1 << x) != n)
-            return(1 << (x + 1));
+         if ((1u << x) != n)
+            return(1u << (x + 1));
          break;
       }
    return n;

@@ -20,7 +20,7 @@
 
 #include "mapinc.h"
 
-static uint8 is167, regs[4];
+static uint8_t is167, regs[4];
 
 static SFORMAT StateRegs[] =
 {
@@ -55,6 +55,7 @@ static void Sync(void) {
 		}
 	}
 	setchr8(0);
+	setmirror(regs[0] & 0x01? MI_H: MI_V);
 }
 
 static DECLFW(M166Write) {

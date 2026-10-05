@@ -23,16 +23,16 @@
 
 static void (*VRC6_cbSync)();
 static int VRC6_A0, VRC6_A1;
-static int (*VRC6_cbGetPRGBank)(uint8);
-static int (*VRC6_cbGetCHRBank)(uint8);
+static int (*VRC6_cbGetPRGBank)(uint8_t);
+static int (*VRC6_cbGetCHRBank)(uint8_t);
 static DECLFR ((*VRC6_cbReadWRAM));
 static DECLFW ((*VRC6_cbWriteWRAM));
-static uint8 VRC6_prg[2];
-static uint8 VRC6_chr[8];
-static uint8 VRC6_misc;
-static uint8 VRC6_latch;
-static uint8 VRC6_mode;
-static uint8 VRC6_count;
+static uint8_t VRC6_prg[2];
+static uint8_t VRC6_chr[8];
+static uint8_t VRC6_misc;
+static uint8_t VRC6_latch;
+static uint8_t VRC6_mode;
+static uint8_t VRC6_count;
 static signed short int VRC6_cycles;
 
 static SFORMAT VRC6_stateRegs[] = {
@@ -68,18 +68,18 @@ void VRC6_syncCHR (int AND, int OR) {
 	setchr1(0x1C00, VRC6_cbGetCHRBank(7) &AND | OR);
 }
 
-void VRC6_syncMirror () { /* Only emulates features used by known games, meaning mode 0 with CHR A10 substitution */
+void VRC6_syncMirror(void) { /* Only emulates features used by known games, meaning mode 0 with CHR A10 substitution */
 	setmirror(VRC6_misc &8? (VRC6_misc &4? MI_1: MI_0): VRC6_misc &4? MI_H: MI_V);
 }
 
-int VRC6_getPRGBank (uint8 bank) {
+int VRC6_getPRGBank (uint8_t bank) {
 	if (bank &2)
 		return bank &1? 0xFF: VRC6_prg[1];
 	else
 		return VRC6_prg[0] <<1 | bank &1;
 }
 
-int VRC6_getCHRBank (uint8 bank) { /* Only emulates features used by known games, meaning mode 0 with CHR A10 substitution */
+int VRC6_getCHRBank (uint8_t bank) { /* Only emulates features used by known games, meaning mode 0 with CHR A10 substitution */
 	return VRC6_chr[bank &7];
 }
 
@@ -90,7 +90,7 @@ DECLFR (VRC6_readWRAM) {
 		return A >>8;
 }
 
-DECLFW (VRC6_writeWRAM) {
+static DECLFW (VRC6_writeWRAM) {
 	if (VRC6_misc &0x80) {
 		CartBW(A, V);
 		if (VRC6_cbWriteWRAM) VRC6_cbWriteWRAM(A, V);
@@ -151,7 +151,7 @@ void FP_FASTAPASS(1) VRC6_cpuCycle (int a) {
 	}
 }
 
-void VRC6_clear () {
+void VRC6_clear(void) {
 	VRC6_prg[0] = 0; VRC6_prg[1] = 0xFE;
 	VRC6_chr[0] = 0; VRC6_chr[1] = 1; VRC6_chr[2] = 2; VRC6_chr[3] = 3; VRC6_chr[4] = 4; VRC6_chr[5] = 5; VRC6_chr[6] = 6; VRC6_chr[7] = 7;
 	VRC6_misc = VRC6_latch = VRC6_mode = VRC6_count = VRC6_cycles = 0;
@@ -166,7 +166,7 @@ static void VRC6_setHandlers () {
 	MapIRQHook =VRC6_cpuCycle;
 }
 
-static void VRC6_configure (void (*sync)(), int A0, int A1, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+static void VRC6_configure (void (*sync)(), int A0, int A1, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	VRC6_A0 = A0;
 	VRC6_A1 = A1;
 	VRC6_cbSync = sync;
@@ -176,7 +176,7 @@ static void VRC6_configure (void (*sync)(), int A0, int A1, int (*prg)(uint8), i
 	VRC6_cbWriteWRAM = write;
 }
 
-void VRC6_activate (uint8 clear, void (*sync)(), int A0, int A1, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void VRC6_activate (uint8_t clear, void (*sync)(), int A0, int A1, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	VRC6_configure(sync, A0, A1, prg, chr, read, write);
 	VRC6_setHandlers();
 	if (clear)
@@ -185,7 +185,7 @@ void VRC6_activate (uint8 clear, void (*sync)(), int A0, int A1, int (*prg)(uint
 		VRC6_cbSync();
 }
 
-void VRC6_addExState () {
+void VRC6_addExState(void) {
 	AddExState(VRC6_stateRegs, ~0, 0, 0);
 }
 
@@ -193,12 +193,13 @@ void VRC6_restore (int version) {
 	VRC6_cbSync();
 }
 
-void VRC6_power () {
+void VRC6_power(void) {
 	VRC6_setHandlers();
 	VRC6_clear();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
-void VRC6_init (CartInfo *info, void (*sync)(), int A0, int A1, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void VRC6_init (CartInfo *info, void (*sync)(), int A0, int A1, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	VRC6_addExState();
 	VRC6_configure(sync, A0, A1, prg, chr, read, write);
 	info->Power = VRC6_power;

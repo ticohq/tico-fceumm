@@ -26,21 +26,21 @@
 
 #include "mapinc.h"
 
-static uint8 preg[4], creg[8];
-static uint32 IRQCount;
-static uint8 *WRAM = NULL;
-static uint32 WRAMSIZE;
+static uint8_t preg[4], creg[8];
+static uint32_t IRQCount;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
 
 static SFORMAT StateRegs[] =
 {
 	{ preg, 4, "PREG" },
 	{ creg, 8, "CREG" },
-	{ &IRQCount, 4, "IRQC" },
+	{ &IRQCount, 4 | FCEUSTATE_RLSB, "IRQC" },
 	{ 0 }
 };
 
 static void Sync(void) {
-	uint8 i;
+	uint8_t i;
 	setprg8r(0x10, 0x6000, 0);
 	setprg8(0x8000, preg[0]);
 	setprg8(0xA000, preg[1]);
@@ -108,7 +108,7 @@ void UNLBJ56_Init(CartInfo *info) {
 	MapIRQHook = UNLBJ56IRQHook;
 	GameStateRestore = StateRestore;
 	WRAMSIZE = 8192;
-	WRAM = (uint8*)FCEU_gmalloc(WRAMSIZE);
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
 	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
 	if (info->battery) {
 		info->SaveGame[0] = WRAM;

@@ -24,14 +24,14 @@
 
 #include "mapinc.h"
 
-static uint8 submapper;
-static uint8 reg, outer;
-static uint32 IRQCount, IRQa;
+static uint8_t submapper;
+static uint8_t reg, outer;
+static uint32_t IRQCount, IRQa;
 
 static SFORMAT StateRegs[] =
 {
-	{ &IRQCount, 4, "IRQC" },
-	{ &IRQa, 4, "IRQA" },
+	{ &IRQCount, 4 | FCEUSTATE_RLSB, "IRQC" },
+	{ &IRQa, 4 | FCEUSTATE_RLSB, "IRQA" },
 	{ &reg, 1, "REG" },
 	{ &reg, 1, "OUTE" },
 	{ 0 }

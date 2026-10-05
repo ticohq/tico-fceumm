@@ -25,16 +25,16 @@
 #include "mapinc.h"
 #include "../fds_apu.h"
 
-static uint8 preg, creg, mirr;
-static uint32 IRQCount, IRQa;
+static uint8_t preg, creg, mirr;
+static uint32_t IRQCount, IRQa;
 
 static SFORMAT StateRegs[] =
 {
 	{ &preg, 1, "PREG" },
 	{ &creg, 1, "CREG" },
 	{ &mirr, 1, "MIRR" },
-	{ &IRQCount, 4, "IRQC" },
-	{ &IRQa, 4, "IRQA" },
+	{ &IRQCount, 4 | FCEUSTATE_RLSB, "IRQC" },
+	{ &IRQa, 4 | FCEUSTATE_RLSB, "IRQA" },
 	{ 0 }
 };
 

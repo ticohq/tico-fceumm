@@ -23,9 +23,9 @@
 #include "mapinc.h"
 #include "asic_mmc3.h"
 
-static uint8 submapper;
-static uint8 reg;
-static uint8 pad;
+static uint8_t submapper;
+static uint8_t reg;
+static uint8_t pad;
 
 static DECLFR (readPad) {
 	return CartBR(A &~0xF | pad &0xF);
@@ -40,12 +40,19 @@ static void sync () {
 	}
 	MMC3_syncCHR(0x7F, reg <<4 &~0x7F);
 	MMC3_syncMirror();
-	SetReadHandler(0x8000, 0xFFFF, reg &(submapper == 1? 0x80: 0x20)? readPad: CartBR);
 }
 
 static DECLFW (writeReg) {
 	reg = A &0xFF;
 	sync();
+}
+
+static DECLFR (interceptPRGRead_submapper0) {
+	return reg &0x20? CartBR(A &~0x1 | pad &0x1): CartBR(A);
+}
+
+static DECLFR (interceptPRGRead_submapper1) {
+	return reg &0x80? CartBR(A &~0xF | pad &0xF): CartBR(A);
 }
 
 static void reset () {
@@ -58,6 +65,7 @@ static void power () {
 	reg = 0;
 	pad = 0;
 	MMC3_power();
+	SetReadHandler(0x8000, 0xFFFF, submapper == 1? interceptPRGRead_submapper1: interceptPRGRead_submapper0);
 }
 
 void Mapper458_Init (CartInfo *info) {

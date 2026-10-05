@@ -22,15 +22,15 @@
 #include "asic_mmc1.h"
 
 static void (*MMC1_cbSync)();
-static int (*MMC1_cbGetPRGBank)(uint8);
-static int (*MMC1_cbGetCHRBank)(uint8);
+static int (*MMC1_cbGetPRGBank)(uint8_t);
+static int (*MMC1_cbGetCHRBank)(uint8_t);
 static DECLFR ((*MMC1_cbReadWRAM));
 static DECLFW ((*MMC1_cbWriteWRAM));
-static uint8 MMC1_type;
-static uint8 MMC1_bits;
-static uint8 MMC1_shift;
-static uint8 MMC1_filter;
-static uint8 MMC1_reg[4];
+static uint8_t MMC1_type;
+static uint8_t MMC1_bits;
+static uint8_t MMC1_shift;
+static uint8_t MMC1_filter;
+static uint8_t MMC1_reg[4];
 
 static SFORMAT MMC1_state[] = {
 	{ MMC1_reg,    4, "MC1R" },
@@ -44,7 +44,7 @@ void MMC1_syncWRAM (int OR) {
 	if (PRGsize[0x10]) setprg8r(0x10, 0x6000, OR);
 }
 
-int MMC1_getPRGBank (uint8 bank) {
+int MMC1_getPRGBank (uint8_t bank) {
 	int result;
 	if (MMC1_reg[0] &0x08)
 		result = MMC1_reg[0] &0x04? (MMC1_reg[3] |bank*0xF): (MMC1_reg[3] &bank*0xF);
@@ -57,21 +57,21 @@ int MMC1_getPRGBank (uint8 bank) {
 		return result &0x0F;
 }
 
-int MMC1_getCHRBank (uint8 bank) {
+int MMC1_getCHRBank (uint8_t bank) {
 	if (MMC1_reg[0] &0x10)
 		return MMC1_reg[1 +bank];
 	else
 		return MMC1_reg[1] &~1 |bank;
 }
 
-DECLFR (MMC1_readWRAM) {
+static DECLFR (MMC1_readWRAM) {
 	if (MMC1_type == MMC1_TYPE_MMC1A || ~MMC1_reg[3] &0x10)
 		return MMC1_cbReadWRAM? MMC1_cbReadWRAM(A): CartBR(A);
 	else
 		return A >>8;
 }
 
-DECLFW (MMC1_writeWRAM) {
+static DECLFW (MMC1_writeWRAM) {
 	if (MMC1_type == MMC1_TYPE_MMC1A || ~MMC1_reg[3] &0x10) {
 		CartBW(A, V);
 		if (MMC1_cbWriteWRAM) MMC1_cbWriteWRAM(A, V);
@@ -88,7 +88,7 @@ void MMC1_syncCHR (int AND, int OR) {
 	setchr4(0x1000, MMC1_cbGetCHRBank(1) &AND |OR);
 }
 
-void MMC1_syncMirror () {
+void MMC1_syncMirror(void) {
 	setmirror(MMC1_reg[0] &2? (MMC1_reg[0] &1? MI_H: MI_V): (MMC1_reg[0] &1? MI_1: MI_0));
 }
 
@@ -115,7 +115,7 @@ DECLFW (MMC1_writeReg) {
 	MMC1_filter = 2;
 }
 
-void MMC1_clear () {
+void MMC1_clear(void) {
 	MMC1_reg[0] = 0x0C; MMC1_reg[1] = 0; MMC1_reg[2] = 0; MMC1_reg[3] = 0; /* "Bad News Baseball" is sensitive to the initial CHR bank register content. 0/0 seems to work. */
 	MMC1_bits = 0; MMC1_shift = 0; MMC1_filter = 0;
 	MMC1_cbSync();
@@ -129,7 +129,7 @@ static void MMC1_setHandlers () {
 	MapIRQHook = MMC1_cpuCycle;
 }
 
-static void MMC1_configure (void (*sync)(), uint8 type, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+static void MMC1_configure (void (*sync)(), uint8_t type, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	MMC1_type = type;
 	MMC1_cbSync = sync;
 	MMC1_cbGetPRGBank = prg? prg: MMC1_getPRGBank;
@@ -138,7 +138,7 @@ static void MMC1_configure (void (*sync)(), uint8 type, int (*prg)(uint8), int (
 	MMC1_cbWriteWRAM = write;
 }
 
-void MMC1_activate (uint8 clear, void (*sync)(), uint8 type, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void MMC1_activate (uint8_t clear, void (*sync)(), uint8_t type, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	MMC1_configure(sync, type, prg, chr, read, write);
 	MMC1_setHandlers();
 	if (clear)
@@ -147,7 +147,7 @@ void MMC1_activate (uint8 clear, void (*sync)(), uint8 type, int (*prg)(uint8), 
 		MMC1_cbSync();
 }
 
-void MMC1_addExState () {
+void MMC1_addExState(void) {
 	AddExState(MMC1_state, ~0, 0, 0);
 }
 
@@ -155,12 +155,13 @@ void MMC1_restore (int version) {
 	MMC1_cbSync();
 }
 
-void MMC1_power () {
+void MMC1_power(void) {
 	MMC1_setHandlers();
 	MMC1_clear();
+	if (PRGsize[0x10]) FCEU_CheatAddRAM((PRGsize[0x10] >> 10) < 8 ? (PRGsize[0x10] >> 10) : 8, 0x6000, PRGptr[0x10]);
 }
 
-void MMC1_init (CartInfo *info, void (*sync)(), uint8 type, int (*prg)(uint8), int (*chr)(uint8), DECLFR((*read)), DECLFW((*write))) {
+void MMC1_init (CartInfo *info, void (*sync)(), uint8_t type, int (*prg)(uint8_t), int (*chr)(uint8_t), DECLFR((*read)), DECLFW((*write))) {
 	MMC1_addExState();
 	MMC1_configure(sync, type, prg, chr, read, write);
 	info->Power = MMC1_power;

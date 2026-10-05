@@ -22,16 +22,16 @@
 #include "asic_vrc3.h"
 
 static void (*VRC3_cbSync)();
-static uint8 VRC3_prg;
-static uint8 VRC3_irq;
-static uint16 VRC3_count;
-static uint16 VRC3_reload;
+static uint8_t VRC3_prg;
+static uint8_t VRC3_irq;
+static uint16_t VRC3_count;
+static uint16_t VRC3_reload;
 
 static SFORMAT VRC3_state[] = {
 	{&VRC3_prg, 1, "VC3P" },
 	{&VRC3_irq, 1, "VC3I" },
-	{&VRC3_count, 1, "VC3C" },
-	{&VRC3_reload, 1, "VC3R" },
+	{&VRC3_count,  2 | FCEUSTATE_RLSB, "VC3C" },
+	{&VRC3_reload, 2 | FCEUSTATE_RLSB, "VC3R" },
 	{ 0 }
 };
 
@@ -71,7 +71,7 @@ DECLFW (VRC3_write) {
 	}
 }
 
-void FP_FASTAPASS(1) VRC3_cpuCycle (int a) {
+static void FP_FASTAPASS(1) VRC3_cpuCycle (int a) {
 	while (a--) {
 		int mask = VRC3_irq &4? 0xFF: 0xFFFF;
 		if ((VRC3_count++ &mask) == mask) {
@@ -81,7 +81,7 @@ void FP_FASTAPASS(1) VRC3_cpuCycle (int a) {
 	}
 }
 
-void VRC3_clear () {
+void VRC3_clear(void) {
 	VRC3_prg = VRC3_irq = VRC3_count = VRC3_reload = 0;
 	X6502_IRQEnd(FCEU_IQEXT);
 	VRC3_cbSync();
@@ -98,7 +98,7 @@ static void VRC3_configure (void (*sync)()) {
 	VRC3_cbSync = sync;
 }
 
-void VRC3_activate (uint8 clear, void (*sync)()) {
+void VRC3_activate (uint8_t clear, void (*sync)()) {
 	VRC3_configure(sync);
 	VRC3_setHandlers();
 	if (clear)
@@ -107,7 +107,7 @@ void VRC3_activate (uint8 clear, void (*sync)()) {
 		VRC3_cbSync();
 }
 
-void VRC3_addExState () {
+void VRC3_addExState(void) {
 	AddExState(VRC3_state, ~0, 0, 0);
 }
 
@@ -115,7 +115,7 @@ void VRC3_restore (int version) {
 	VRC3_cbSync();
 }
 
-void VRC3_power () {
+void VRC3_power(void) {
 	VRC3_setHandlers();
 	VRC3_clear();
 }

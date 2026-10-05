@@ -21,7 +21,7 @@
 #include "mapinc.h"
 #include "asic_latch.h"
 
-static uint8 pad;
+static uint8_t pad;
 
 static void sync_submapper0 () {
 	if (Latch_data &0x40)
@@ -66,7 +66,7 @@ static void power () {
 }
 
 static void reset () {
-	pad = ++pad %24;
+	pad = (pad + 1) % 24;
 	Latch_clear();
 }
 

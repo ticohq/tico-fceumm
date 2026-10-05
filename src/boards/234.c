@@ -20,7 +20,7 @@
 
 #include "mapinc.h"
 
-static uint8 bank, preg;
+static uint8_t bank, preg;
 static SFORMAT StateRegs[] =
 {
 	{ &bank, 1, "BANK" },
@@ -39,8 +39,8 @@ static void Sync(void) {
 	setmirror((bank >> 7) ^ 1);
 }
 
-DECLFR(M234ReadBank) {
-	uint8 r = CartBR(A);
+static DECLFR(M234ReadBank) {
+	uint8_t r = CartBR(A);
 	if (!bank) {
 		bank = r;
 		Sync();
@@ -48,8 +48,8 @@ DECLFR(M234ReadBank) {
 	return r;
 }
 
-DECLFR(M234ReadPreg) {
-	uint8 r = CartBR(A);
+static DECLFR(M234ReadPreg) {
+	uint8_t r = CartBR(A);
 	preg = r;
 	Sync();
 	return r;

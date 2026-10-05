@@ -21,9 +21,9 @@
 #include "mapinc.h"
 #include "mmc3.h"
 
-static uint8 submapper;
+static uint8_t submapper;
 
-static void PRGWrap(uint32 A, uint8 V) {
+static void PRGWrap(uint32_t A, uint8_t V) {
 	if (submapper ==1) {
 		setprg8(0x6000, ~1);
 		setprg8(0x8000, DRegBuf[6] <<1 |0);
@@ -36,7 +36,7 @@ static void PRGWrap(uint32 A, uint8 V) {
 	setprg8(0xE000, ~0);
 }
 
-static void CHRWrap(uint32 A, uint8 V) {
+static void CHRWrap(uint32_t A, uint8_t V) {
 	setchr4(0x0000, DRegBuf[0]);
 	setchr4(0x1000, DRegBuf[1]);
 }
@@ -69,7 +69,7 @@ static void power(void) {
 
 void Mapper399_Init(CartInfo *info) {
 	submapper =info->submapper;
-	GenMMC3_Init(info, 256, 32, info->iNES2? (info->PRGRamSize + info->PRGRamSaveSize) /1024: 8, info->battery);
+	GenMMC3_Init(info, 256, 32, CartInfo_PRGRAM_bytes(info, 8 * 1024) / 1024, info->battery);
 	cwrap =CHRWrap;
 	pwrap =PRGWrap;
 	info->Power =power;

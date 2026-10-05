@@ -24,10 +24,10 @@
 
 #include "mapinc.h"
 
-static uint8 cmd, mirr, regs[11];
-static uint8 rmode, IRQmode, IRQCount, IRQa, IRQLatch;
+static uint8_t cmd, mirr, regs[11];
+static uint8_t rmode, IRQmode, IRQCount, IRQa, IRQLatch;
 
-static void (*cwrap)(uint32 A, uint8 V);
+static void (*cwrap)(uint32_t A, uint8_t V);
 static int _isM158;
 
 static SFORMAT StateRegs[] = {
@@ -43,14 +43,33 @@ static SFORMAT StateRegs[] = {
 };
 
 static void FP_FASTAPASS(1) RAMBO1IRQHook(int a) {
-	static int32 smallcount;
+	static int32_t smallcount;
 	if (IRQmode) {
 		smallcount += a;
 		while (smallcount >= 4) {
 			smallcount -= 4;
-			IRQCount--;
-			if (IRQCount == 0xFF)
-				if (IRQa) X6502_IRQBegin(FCEU_IQEXT);
+			/* Mesen / _next reference: the Tengen RAMBO-1 IRQ counter
+			 * auto-reloads from the latch when it would otherwise
+			 * underflow, and the IRQ triggers when the counter
+			 * REACHES zero (going from 1 to 0) rather than on the
+			 * underflow step that follows.  Upstream's earlier model
+			 * triggered on underflow (count 0 -> 0xFF) and then
+			 * continued decrementing through 0xFE, 0xFD, ... until
+			 * the game wrote a reload register.  Match the hardware
+			 * model: trigger on reach-0, and on the following clock
+			 * reload from latch automatically so the counter cycles
+			 * continuously without needing per-IRQ register writes. */
+			if (IRQCount == 0) {
+				IRQCount = IRQLatch;
+				if (IRQCount == 0 && IRQa) {
+					X6502_IRQBegin(FCEU_IQEXT);
+				}
+			} else {
+				IRQCount--;
+				if (IRQCount == 0 && IRQa) {
+					X6502_IRQBegin(FCEU_IQEXT);
+				}
+			}
 		}
 	}
 }
@@ -58,9 +77,20 @@ static void FP_FASTAPASS(1) RAMBO1IRQHook(int a) {
 static void RAMBO1HBHook(void) {
 	if ((!IRQmode) && (scanline != 240)) {
 		rmode = 0;
-		IRQCount--;
-		if (IRQCount == 0xFF) {
-			if (IRQa) {
+		/* See comment in RAMBO1IRQHook above for the auto-reload /
+		 * trigger-on-reach-0 model.  Same change applies here for the
+		 * scanline-clocked (A12 approximation) IRQ path. */
+		if (IRQCount == 0) {
+			IRQCount = IRQLatch;
+			/* Latch == 0 means fire on every clock - reload yields
+			 * 0 again, which is the reach-0 trigger condition. */
+			if (IRQCount == 0 && IRQa) {
+				rmode = 1;
+				X6502_IRQBegin(FCEU_IQEXT);
+			}
+		} else {
+			IRQCount--;
+			if (IRQCount == 0 && IRQa) {
 				rmode = 1;
 				X6502_IRQBegin(FCEU_IQEXT);
 			}
@@ -155,7 +185,7 @@ static void RAMBO1_Init(CartInfo *info) {
 	AddExState(&StateRegs, ~0, 0, 0);
 }
 
-static void M64CWRAP(uint32 A, uint8 V) {
+static void M64CWRAP(uint32_t A, uint8_t V) {
 	setchr1(A, V);
 }
 
@@ -165,17 +195,17 @@ void Mapper64_Init(CartInfo *info) {
 	RAMBO1_Init(info);
 }
 
-static uint8 M158MIR[8];
-static uint8 PPUCHRBus;
+static uint8_t M158MIR[8];
+static uint8_t PPUCHRBus;
 
-static void FP_FASTAPASS(1) M158PPU(uint32 A) {
+static void FP_FASTAPASS(1) M158PPU(uint32_t A) {
 	A &= 0x1FFF;
 	A >>= 10;
 	PPUCHRBus = A;
 	setmirror(MI_0 + M158MIR[A]);
 }
 
-static void M158CWRAP(uint32 A, uint8 V) {
+static void M158CWRAP(uint32_t A, uint8_t V) {
 	M158MIR[A >> 10] = (V >> 7) & 1;
 	setchr1(A, V);
 	if (PPUCHRBus == (A >> 10))

@@ -23,8 +23,8 @@
 #include "asic_mmc3.h"
 
 static void (*TC3294_cbSync)();
-static uint8 TC3294_index;
-uint8 TC3294_reg[4];
+static uint8_t TC3294_index;
+uint8_t TC3294_reg[4];
 
 static SFORMAT TC3294_state[] = {
 	{ TC3294_reg,   4, "329S" },
@@ -48,7 +48,7 @@ void TC3294_syncCHR (int AND, int OR) {
 	MMC3_syncCHR(chrAND &AND, chrOR &~chrAND &AND | OR &~AND);
 }
 
-void TC3294_syncMirror () {
+void TC3294_syncMirror(void) {
 	MMC3_syncMirror();
 }
 
@@ -59,7 +59,7 @@ DECLFW(TC3294_writeReg) {
 	}
 }
 
-void TC3294_clear () {
+void TC3294_clear(void) {
 	TC3294_reg[0] = 0x00; TC3294_reg[1] = 0x00; TC3294_reg[2] = 0x0F; TC3294_reg[3] = 0x00;
 	TC3294_index = 0;
 	TC3294_cbSync();
@@ -72,7 +72,7 @@ static void TC3294_configure (void (*sync)()) {
 	TC3294_cbSync = sync;
 }
 
-void TC3294_activate (uint8 clear, void (*sync)()) {
+void TC3294_activate (uint8_t clear, void (*sync)()) {
 	MMC3_activate(clear, sync, MMC3_TYPE_AX5202P, NULL, NULL, NULL, TC3294_writeReg);
 	TC3294_configure(sync);
 	TC3294_setHandlers();
@@ -82,7 +82,7 @@ void TC3294_activate (uint8 clear, void (*sync)()) {
 		TC3294_cbSync();
 }
 
-void TC3294_addExState () {
+void TC3294_addExState(void) {
 	AddExState(TC3294_state, ~0, 0, 0);
 }
 
@@ -90,7 +90,7 @@ void TC3294_restore (int version) {
 	TC3294_cbSync();
 }
 
-void TC3294_power () {
+void TC3294_power(void) {
 	MMC3_power();
 	TC3294_setHandlers();
 	TC3294_clear();

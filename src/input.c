@@ -53,11 +53,11 @@ extern INPUTCFC *FCEU_InitOekaKids(void);
 extern INPUTCFC *FCEU_InitTopRider(void);
 extern INPUTCFC *FCEU_InitBarcodeWorld(void);
 
-static uint8 joy_readbit[2];
-static uint8 joy[4] = { 0, 0, 0, 0 };
-static uint8 LastStrobe;
+static uint8_t joy_readbit[2];
+static uint8_t joy[4] = { 0, 0, 0, 0 };
+static uint8_t LastStrobe;
 
-extern uint8 coinon;
+extern uint8_t coinon;
 
 static int FSDisable = 0; /* Set to 1 if NES-style four-player adapter is disabled. */
 static int JPAttrib[2] = { 0, 0 };
@@ -72,11 +72,11 @@ static INPUTC DummyJPort = { 0, 0, 0, 0, 0, 0 };
 static INPUTC *JPorts[2] = { &DummyJPort, &DummyJPort };
 static INPUTCFC *FCExp = 0;
 
-void (*InputScanlineHook)(uint8 *bg, uint8 *spr, uint32 linets, int final);
+void (*InputScanlineHook)(uint8_t *bg, uint8_t *spr, uint32_t linets, int final);
 
 static DECLFR(JPRead)
 {
-	uint8 ret = 0;
+	uint8_t ret = 0;
 
 	if (JPorts[A & 1]->Read)
 		ret |= JPorts[A & 1]->Read(A & 1);
@@ -114,7 +114,7 @@ static DECLFW(B4016)
 	LastStrobe = V & 0x1;
 }
 
-void FCEU_DrawInput(uint8 *buf)
+void FCEU_DrawInput(uint8_t *buf)
 {
    int x;
 
@@ -130,18 +130,19 @@ void FCEU_DrawInput(uint8 *buf)
 /* This function is a quick hack to get the NSF player to use emulated gamepad
    input.
 */
-uint8 FCEU_GetJoyJoy(void) {
+uint8_t FCEU_GetJoyJoy(void); /* used by src/nsf.c */
+uint8_t FCEU_GetJoyJoy(void) {
 	return(joy[0] | joy[1] | joy[2] | joy[3]);
 }
 
 /* 4-player support for famicom expansion */
-static uint8 F4ReadBit[2];
+static uint8_t F4ReadBit[2];
 
 static void StrobeFami4(void) {
 	F4ReadBit[0] = F4ReadBit[1] = 0;
 }
 
-static uint8 FP_FASTAPASS(2) ReadFami4(int w, uint8 ret) {
+static uint8_t FP_FASTAPASS(2) ReadFami4(int w, uint8_t ret) {
 	ret &= 1;
 	ret |= ((joy[2 + w] >> (F4ReadBit[w])) & 1) << 1;
 	if (F4ReadBit[w] >= 8) ret |= 2;
@@ -150,23 +151,20 @@ static uint8 FP_FASTAPASS(2) ReadFami4(int w, uint8 ret) {
 }
 
 /* VS. Unisystem inputs */
-static uint8 FP_FASTAPASS(1) ReadGPVS(int w) {
-	uint8 ret = 0;
+static uint8_t FP_FASTAPASS(1) ReadGPVS(int w) {
+	uint8_t ret = 0;
 	if (joy_readbit[w] >= 8)
 		ret = 1;
 	else {
 		ret = ((joy[w] >> (joy_readbit[w])) & 1);
-	#ifdef FCEUDEF_DEBUGGER
-		if (!fceuindbg)
-	#endif
 		joy_readbit[w]++;
 	}
 	return ret;
 }
 
 /* standard gamepad inputs */
-static uint8 FP_FASTAPASS(1) ReadGP(int w) {
-	uint8 ret;
+static uint8_t FP_FASTAPASS(1) ReadGP(int w) {
+	uint8_t ret;
 	if (joy_readbit[w] >= 8)
 		ret = ((joy[2 + w] >> (joy_readbit[w] & 7)) & 1);
 	else
@@ -179,21 +177,22 @@ static uint8 FP_FASTAPASS(1) ReadGP(int w) {
 		if (joy_readbit[w] == 19 - w)
 			ret |= 1;
 	}
-	#ifdef FCEUDEF_DEBUGGER
-	if (!fceuindbg)
-	#endif
 	joy_readbit[w]++;
 	return ret;
 }
 
 static void FP_FASTAPASS(3) UpdateGP(int w, void *data, int arg) {
-	uint32 *ptr = (uint32*)data;
+	/* JSReturn is constructed by the libretro frontend as a uint32_t with
+	 * player N at bits (N<<3)..(N<<3)+7. Reading via host-endian uint32_t
+	 * cast and shifting gives the correct player byte regardless of host
+	 * endianness, because the writer used the matching shift. */
+	uint32_t *ptr = (uint32_t*)data;
 	if (!w) {
-		joy[0] = *(uint32*)ptr;
-		joy[2] = *(uint32*)ptr >> 16;
+		joy[0] = *(uint32_t*)ptr;
+		joy[2] = *(uint32_t*)ptr >> 16;
 	} else {
-		joy[1] = *(uint32*)ptr >> 8;
-		joy[3] = *(uint32*)ptr >> 24;
+		joy[1] = *(uint32_t*)ptr >> 8;
+		joy[3] = *(uint32_t*)ptr >> 24;
 	}
 }
 
@@ -229,7 +228,7 @@ void FCEU_UpdateInput(void)
 
 static DECLFR(VSUNIRead0)
 {
-   uint8 ret = 0;
+   uint8_t ret = 0;
 
    if (JPorts[0]->Read)
       ret |= (JPorts[0]->Read(0)) & 1;
@@ -242,7 +241,7 @@ static DECLFR(VSUNIRead0)
 
 static DECLFR(VSUNIRead1)
 {
-	uint8 ret = 0;
+	uint8_t ret = 0;
 
 	if (JPorts[1] && JPorts[1]->Read)
 		ret |= (JPorts[1]->Read(1)) & 1;
@@ -250,7 +249,7 @@ static DECLFR(VSUNIRead1)
 	return ret;
 }
 
-static void SLHLHook(uint8 *bg, uint8 *spr, uint32 linets, int final)
+static void SLHLHook(uint8_t *bg, uint8_t *spr, uint32_t linets, int final)
 {
    int x;
 
@@ -442,7 +441,7 @@ void FCEU_DoSimpleCommand(int cmd)
    }
 }
 
-void FCEU_QSimpleCommand(int cmd)
+static void FCEU_QSimpleCommand(int cmd)
 {
    FCEU_DoSimpleCommand(cmd);
 }

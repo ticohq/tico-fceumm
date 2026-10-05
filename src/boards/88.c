@@ -20,8 +20,8 @@
 
 #include "mapinc.h"
 
-static uint8 reg[8];
-static uint8 mirror, cmd, is154;
+static uint8_t reg[8];
+static uint8_t mirror, cmd, is154;
 
 static SFORMAT StateRegs[] =
 {
@@ -64,6 +64,7 @@ static void M88Power(void) {
 }
 
 static void StateRestore(int version) {
+	cmd &= 7;	/* reg[] has 8 entries; clamp savestate value */
 	Sync();
 	MSync();
 }
