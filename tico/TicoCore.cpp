@@ -1828,7 +1828,7 @@ void TicoCore::SaveRAToken(const std::string& token)
 
 void TicoCore::RAIdentifyGame(rc_client_t* c, TicoCore* core)
 {
-    const uint32_t console_id = TicoConfig::GetRcConsoleId();
+    const uint32_t console_id = TicoConfig::GetRcConsoleId(core->m_romData.data(), core->m_romData.size());
 
     tico_debug_log("RA: Identifying game... (Console ID: %u)", console_id);
     // hashed from the loaded ROM, so a zipped game is recognized too

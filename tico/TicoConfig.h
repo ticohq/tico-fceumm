@@ -2,6 +2,7 @@
 /// @brief Minimal hardcoded configuration for tico overlay (fceumm)
 #pragma once
 
+#include <cstring>
 #include <string>
 
 namespace TicoConfig {
@@ -29,9 +30,13 @@ namespace TicoConfig {
     /// Create a directory and any missing parents.
     void MakeDirs(const std::string& path);
 
-    /// @brief Map console slug to RetroAchievements console ID
-    inline int GetRcConsoleId() {
-        return 7; // RC_CONSOLE_NINTENDO
+    /// @brief RetroAchievements console ID for a loaded image: Famicom Disk
+    /// System disks (fwNES "FDS\x1A" header, or a raw disk starting with its
+    /// "*NINTENDO-HVC*" block) are their own console, the rest is the NES.
+    inline int GetRcConsoleId(const unsigned char* data, size_t size) {
+        const bool fds = data && size >= 15 &&
+            (!memcmp(data, "FDS\x1A", 4) || (data[0] == 0x01 && !memcmp(data + 1, "*NINTENDO-HVC*", 14)));
+        return fds ? 81 /* RC_CONSOLE_FAMICOM_DISK_SYSTEM */ : 7 /* RC_CONSOLE_NINTENDO */;
     }
 
     constexpr int WINDOW_WIDTH = 1280;
