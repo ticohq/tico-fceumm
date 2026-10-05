@@ -51,10 +51,12 @@ LABEL_KEYS = {
 }
 
 # Core options the frontend has no use for: the Zapper, Arkanoid paddle and
-# mouse need pointer input it does not send, and the show_* options only hide
-# entries in RetroArch's menu.
+# mouse need pointer input it does not send, the show_* options only hide
+# entries in RetroArch's menu, and the frontend resamples whatever rate the
+# core runs at (changing it mid-game would leave the audio at the old rate).
 EXCLUDED = {
     "fceumm_show_adv_system_options", "fceumm_show_adv_sound_options",
+    "fceumm_sndrate_hint",
     "fceumm_zapper_mode", "fceumm_show_crosshair", "fceumm_zapper_tolerance",
     "fceumm_zapper_trigger", "fceumm_zapper_sensor", "fceumm_arkanoid_mode",
     "fceumm_mouse_sensitivity",
@@ -69,7 +71,7 @@ LAYOUT = [
     ]),
     ("settings_fceumm_tab_video", [
         ("settings_fceumm_section_display", ["fceumm_aspect", "fceumm_palette",
-                                             "fceumm_ntsc_filter"]),
+                                             "fceumm_ntsc_filter", "fceumm_hdpacks"]),
         ("settings_fceumm_section_overscan", [
             "fceumm_overscan_v_top", "fceumm_overscan_v_bottom",
             "fceumm_overscan_h_left", "fceumm_overscan_h_right",
@@ -78,9 +80,14 @@ LAYOUT = [
     ("settings_fceumm_tab_audio", [
         ("settings_fceumm_section_quality", [
             "fceumm_sndquality", "fceumm_sndvolume", "fceumm_sndlowpass",
-            "fceumm_swapduty", "fceumm_sndstereodelay",
+            "fceumm_swapduty", "fceumm_sndstereodelay", "fceumm_removetrianglenoise",
+            "fceumm_reducedmcpopping",
         ]),
         ("settings_fceumm_section_channels", [f"fceumm_apu_{i}" for i in range(1, 6)]),
+        ("settings_fceumm_section_expansion_audio", [
+            "fceumm_apu_fds", "fceumm_apu_mmc5", "fceumm_apu_vrc6", "fceumm_apu_vrc7",
+            "fceumm_apu_n163", "fceumm_apu_s5b",
+        ]),
     ]),
     ("settings_fceumm_tab_input", [
         ("settings_fceumm_section_turbo", ["fceumm_turbo_enable", "fceumm_turbo_delay"]),
@@ -170,6 +177,10 @@ LABELS = {
                                         "Qualidade", "Качество", "质量"),
     "settings_fceumm_section_channels": ("Channels", "Kanäle", "Canales", "Canaux", "チャンネル",
                                          "Canais", "Каналы", "声道"),
+    "settings_fceumm_section_expansion_audio": ("Expansion audio", "Erweiterungs-Audio",
+                                                "Audio de expansión", "Audio d'extension",
+                                                "拡張音源", "Áudio de expansão", "Звук расширений",
+                                                "扩展音频"),
     "settings_fceumm_tab_input": ("Input", "Eingabe", "Entrada", "Entrée", "入力", "Entrada", "Ввод",
                                   "输入"),
     "settings_fceumm_section_turbo": ("Turbo", "Turbo", "Turbo", "Turbo", "連射", "Turbo", "Турбо",
@@ -298,7 +309,7 @@ CHOICES = {
                      "Inferior direito", "Снизу справа", "右下"),
 }
 
-RESTART_SUFFIX = re.compile(r"\s*\((Restart Required|Reload Core|[^)]*[Nn]eustart[^)]*|[^)]*[Rr]einici[^)]*|"
+RESTART_SUFFIX = re.compile(r"\s*\((Restart Required|Restart|Reload Core|[^)]*[Nn]eustart[^)]*|[^)]*[Rr]einici[^)]*|"
                             r"[^)]*[Rr]edémarr[^)]*|[^)]*再起動[^)]*|[^)]*перезапуск[^)]*|"
                             r"[^)]*重启[^)]*|[^)]*[Rr]einicializa[^)]*)\)")
 
@@ -320,8 +331,8 @@ def english_choice(value: str, label: str) -> str:
 def dump_options() -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         exe = Path(tmp) / "dump_core_options"
-        # the libnx build has Blargg's NTSC filter (HAVE_NTSC=1)
-        subprocess.run(["cc", "-std=gnu11", "-w", "-DHAVE_NTSC_FILTER",
+        # the libnx build has Blargg's NTSC filter and HD packs (Makefile.libretro)
+        subprocess.run(["cc", "-std=gnu11", "-w", "-DHAVE_NTSC_FILTER", "-DHAVE_HDPACK",
                         "-I", str(ROOT / "src/drivers/libretro"),
                         "-I", str(ROOT / "src/drivers/libretro/libretro-common/include"),
                         "-o", str(exe), str(Path(__file__).with_name("dump_core_options.c"))],

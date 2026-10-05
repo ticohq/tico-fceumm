@@ -483,6 +483,13 @@
                   "value": "monochrome"
                 }
               ]
+            },
+            {
+              "key": "fceumm_hdpacks",
+              "label": "settings_fceumm_hdpacks",
+              "type": "bool",
+              "default": "enabled",
+              "restart": true
             }
           ]
         },
@@ -850,6 +857,18 @@
                   "value": "32_ms_delay"
                 }
               ]
+            },
+            {
+              "key": "fceumm_removetrianglenoise",
+              "label": "settings_fceumm_removetrianglenoise",
+              "type": "bool",
+              "default": "disabled"
+            },
+            {
+              "key": "fceumm_reducedmcpopping",
+              "label": "settings_fceumm_reducedmcpopping",
+              "type": "bool",
+              "default": "disabled"
             }
           ]
         },
@@ -885,6 +904,563 @@
               "label": "settings_fceumm_pcm",
               "type": "bool",
               "default": "enabled"
+            }
+          ]
+        },
+        {
+          "title": "settings_fceumm_section_expansion_audio",
+          "options": [
+            {
+              "key": "fceumm_apu_fds",
+              "label": "settings_fceumm_apu_fds",
+              "type": "enum",
+              "default": "100",
+              "choices": [
+                {
+                  "label": "0",
+                  "value": "0"
+                },
+                {
+                  "label": "5",
+                  "value": "5"
+                },
+                {
+                  "label": "10",
+                  "value": "10"
+                },
+                {
+                  "label": "15",
+                  "value": "15"
+                },
+                {
+                  "label": "20",
+                  "value": "20"
+                },
+                {
+                  "label": "25",
+                  "value": "25"
+                },
+                {
+                  "label": "30",
+                  "value": "30"
+                },
+                {
+                  "label": "35",
+                  "value": "35"
+                },
+                {
+                  "label": "40",
+                  "value": "40"
+                },
+                {
+                  "label": "45",
+                  "value": "45"
+                },
+                {
+                  "label": "50",
+                  "value": "50"
+                },
+                {
+                  "label": "55",
+                  "value": "55"
+                },
+                {
+                  "label": "60",
+                  "value": "60"
+                },
+                {
+                  "label": "65",
+                  "value": "65"
+                },
+                {
+                  "label": "70",
+                  "value": "70"
+                },
+                {
+                  "label": "75",
+                  "value": "75"
+                },
+                {
+                  "label": "80",
+                  "value": "80"
+                },
+                {
+                  "label": "85",
+                  "value": "85"
+                },
+                {
+                  "label": "90",
+                  "value": "90"
+                },
+                {
+                  "label": "95",
+                  "value": "95"
+                },
+                {
+                  "label": "100",
+                  "value": "100"
+                }
+              ]
+            },
+            {
+              "key": "fceumm_apu_mmc5",
+              "label": "settings_fceumm_apu_mmc5",
+              "type": "enum",
+              "default": "100",
+              "choices": [
+                {
+                  "label": "0",
+                  "value": "0"
+                },
+                {
+                  "label": "5",
+                  "value": "5"
+                },
+                {
+                  "label": "10",
+                  "value": "10"
+                },
+                {
+                  "label": "15",
+                  "value": "15"
+                },
+                {
+                  "label": "20",
+                  "value": "20"
+                },
+                {
+                  "label": "25",
+                  "value": "25"
+                },
+                {
+                  "label": "30",
+                  "value": "30"
+                },
+                {
+                  "label": "35",
+                  "value": "35"
+                },
+                {
+                  "label": "40",
+                  "value": "40"
+                },
+                {
+                  "label": "45",
+                  "value": "45"
+                },
+                {
+                  "label": "50",
+                  "value": "50"
+                },
+                {
+                  "label": "55",
+                  "value": "55"
+                },
+                {
+                  "label": "60",
+                  "value": "60"
+                },
+                {
+                  "label": "65",
+                  "value": "65"
+                },
+                {
+                  "label": "70",
+                  "value": "70"
+                },
+                {
+                  "label": "75",
+                  "value": "75"
+                },
+                {
+                  "label": "80",
+                  "value": "80"
+                },
+                {
+                  "label": "85",
+                  "value": "85"
+                },
+                {
+                  "label": "90",
+                  "value": "90"
+                },
+                {
+                  "label": "95",
+                  "value": "95"
+                },
+                {
+                  "label": "100",
+                  "value": "100"
+                }
+              ]
+            },
+            {
+              "key": "fceumm_apu_vrc6",
+              "label": "settings_fceumm_apu_vrc6",
+              "type": "enum",
+              "default": "100",
+              "choices": [
+                {
+                  "label": "0",
+                  "value": "0"
+                },
+                {
+                  "label": "5",
+                  "value": "5"
+                },
+                {
+                  "label": "10",
+                  "value": "10"
+                },
+                {
+                  "label": "15",
+                  "value": "15"
+                },
+                {
+                  "label": "20",
+                  "value": "20"
+                },
+                {
+                  "label": "25",
+                  "value": "25"
+                },
+                {
+                  "label": "30",
+                  "value": "30"
+                },
+                {
+                  "label": "35",
+                  "value": "35"
+                },
+                {
+                  "label": "40",
+                  "value": "40"
+                },
+                {
+                  "label": "45",
+                  "value": "45"
+                },
+                {
+                  "label": "50",
+                  "value": "50"
+                },
+                {
+                  "label": "55",
+                  "value": "55"
+                },
+                {
+                  "label": "60",
+                  "value": "60"
+                },
+                {
+                  "label": "65",
+                  "value": "65"
+                },
+                {
+                  "label": "70",
+                  "value": "70"
+                },
+                {
+                  "label": "75",
+                  "value": "75"
+                },
+                {
+                  "label": "80",
+                  "value": "80"
+                },
+                {
+                  "label": "85",
+                  "value": "85"
+                },
+                {
+                  "label": "90",
+                  "value": "90"
+                },
+                {
+                  "label": "95",
+                  "value": "95"
+                },
+                {
+                  "label": "100",
+                  "value": "100"
+                }
+              ]
+            },
+            {
+              "key": "fceumm_apu_vrc7",
+              "label": "settings_fceumm_apu_vrc7",
+              "type": "enum",
+              "default": "100",
+              "choices": [
+                {
+                  "label": "0",
+                  "value": "0"
+                },
+                {
+                  "label": "5",
+                  "value": "5"
+                },
+                {
+                  "label": "10",
+                  "value": "10"
+                },
+                {
+                  "label": "15",
+                  "value": "15"
+                },
+                {
+                  "label": "20",
+                  "value": "20"
+                },
+                {
+                  "label": "25",
+                  "value": "25"
+                },
+                {
+                  "label": "30",
+                  "value": "30"
+                },
+                {
+                  "label": "35",
+                  "value": "35"
+                },
+                {
+                  "label": "40",
+                  "value": "40"
+                },
+                {
+                  "label": "45",
+                  "value": "45"
+                },
+                {
+                  "label": "50",
+                  "value": "50"
+                },
+                {
+                  "label": "55",
+                  "value": "55"
+                },
+                {
+                  "label": "60",
+                  "value": "60"
+                },
+                {
+                  "label": "65",
+                  "value": "65"
+                },
+                {
+                  "label": "70",
+                  "value": "70"
+                },
+                {
+                  "label": "75",
+                  "value": "75"
+                },
+                {
+                  "label": "80",
+                  "value": "80"
+                },
+                {
+                  "label": "85",
+                  "value": "85"
+                },
+                {
+                  "label": "90",
+                  "value": "90"
+                },
+                {
+                  "label": "95",
+                  "value": "95"
+                },
+                {
+                  "label": "100",
+                  "value": "100"
+                }
+              ]
+            },
+            {
+              "key": "fceumm_apu_n163",
+              "label": "settings_fceumm_apu_n163",
+              "type": "enum",
+              "default": "100",
+              "choices": [
+                {
+                  "label": "0",
+                  "value": "0"
+                },
+                {
+                  "label": "5",
+                  "value": "5"
+                },
+                {
+                  "label": "10",
+                  "value": "10"
+                },
+                {
+                  "label": "15",
+                  "value": "15"
+                },
+                {
+                  "label": "20",
+                  "value": "20"
+                },
+                {
+                  "label": "25",
+                  "value": "25"
+                },
+                {
+                  "label": "30",
+                  "value": "30"
+                },
+                {
+                  "label": "35",
+                  "value": "35"
+                },
+                {
+                  "label": "40",
+                  "value": "40"
+                },
+                {
+                  "label": "45",
+                  "value": "45"
+                },
+                {
+                  "label": "50",
+                  "value": "50"
+                },
+                {
+                  "label": "55",
+                  "value": "55"
+                },
+                {
+                  "label": "60",
+                  "value": "60"
+                },
+                {
+                  "label": "65",
+                  "value": "65"
+                },
+                {
+                  "label": "70",
+                  "value": "70"
+                },
+                {
+                  "label": "75",
+                  "value": "75"
+                },
+                {
+                  "label": "80",
+                  "value": "80"
+                },
+                {
+                  "label": "85",
+                  "value": "85"
+                },
+                {
+                  "label": "90",
+                  "value": "90"
+                },
+                {
+                  "label": "95",
+                  "value": "95"
+                },
+                {
+                  "label": "100",
+                  "value": "100"
+                }
+              ]
+            },
+            {
+              "key": "fceumm_apu_s5b",
+              "label": "settings_fceumm_apu_s5b",
+              "type": "enum",
+              "default": "100",
+              "choices": [
+                {
+                  "label": "0",
+                  "value": "0"
+                },
+                {
+                  "label": "5",
+                  "value": "5"
+                },
+                {
+                  "label": "10",
+                  "value": "10"
+                },
+                {
+                  "label": "15",
+                  "value": "15"
+                },
+                {
+                  "label": "20",
+                  "value": "20"
+                },
+                {
+                  "label": "25",
+                  "value": "25"
+                },
+                {
+                  "label": "30",
+                  "value": "30"
+                },
+                {
+                  "label": "35",
+                  "value": "35"
+                },
+                {
+                  "label": "40",
+                  "value": "40"
+                },
+                {
+                  "label": "45",
+                  "value": "45"
+                },
+                {
+                  "label": "50",
+                  "value": "50"
+                },
+                {
+                  "label": "55",
+                  "value": "55"
+                },
+                {
+                  "label": "60",
+                  "value": "60"
+                },
+                {
+                  "label": "65",
+                  "value": "65"
+                },
+                {
+                  "label": "70",
+                  "value": "70"
+                },
+                {
+                  "label": "75",
+                  "value": "75"
+                },
+                {
+                  "label": "80",
+                  "value": "80"
+                },
+                {
+                  "label": "85",
+                  "value": "85"
+                },
+                {
+                  "label": "90",
+                  "value": "90"
+                },
+                {
+                  "label": "95",
+                  "value": "95"
+                },
+                {
+                  "label": "100",
+                  "value": "100"
+                }
+              ]
             }
           ]
         }
