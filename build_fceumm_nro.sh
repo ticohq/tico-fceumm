@@ -20,9 +20,8 @@ TICO_DIR="$ROOT_DIR/tico"
 APP_VERSION="3.0.0"
 
 # Rendering is Vulkan on Mesa's NVK, linked statically (a loaderless
-# libvulkan.a), as in tico-flycast and tico-gambatte. Point MESA_NVK_DIR at
-# builddir-switch of a mesa-switch tree; without one, the switch-dev image's
-# Horizon-native NVK in portlibs is used.
+# libvulkan.a). Point MESA_NVK_DIR at builddir-switch of a mesa-switch tree;
+# without one, the switch-dev image's Horizon-native NVK in portlibs is used.
 MESA_NVK_DIR="${MESA_NVK_DIR:-/nvk-build}"
 NVK_ARCHIVE_SRC="$MESA_NVK_DIR/src/nouveau/vulkan/libvulkan.a"
 NVK_DEPS="-ldrm_nouveau -lexpat"
