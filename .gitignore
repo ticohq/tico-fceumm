@@ -16,3 +16,6 @@ tico/config/
 build.log
 *.dll
 *.dylib
+
+# TicoSecure build secret (shared with tico)
+/tico/TicoSecret.h
