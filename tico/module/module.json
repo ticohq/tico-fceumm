@@ -22,7 +22,7 @@
         ".7z",
         ".rar"
       ],
-      "games_file": "nes.json",
+      "games_file": "nes.dat",
       "retroachievements_id": 7,
       "colors": {
         "start": "E65F7A",
