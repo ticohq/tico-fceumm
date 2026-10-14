@@ -471,7 +471,16 @@ std::string ContentRoot(const char *key, const char *defaultRoot)
 } // namespace
 
 namespace TicoConfig {
-std::string SystemPath() { return ContentRoot("tico_system_path", "sdmc:/tico/system/") + "nes/"; }
+std::string SystemPath()
+{
+    // The emulator's own BIOS folder; before 3.0.1 it was named after the
+    // console. tico moves it too, but this core may start without tico.
+    const std::string root = ContentRoot("tico_system_path", "sdmc:/tico/system/");
+    struct stat st;
+    if (stat((root + "fceumm").c_str(), &st) != 0 && stat((root + "nes").c_str(), &st) == 0)
+        rename((root + "nes").c_str(), (root + "fceumm").c_str());
+    return root + "fceumm/";
+}
 std::string SavesPath() { return tico::UserContentRoot(ContentRoot("tico_saves_path", "sdmc:/tico/saves/"), true) + CURRENT_SLUG + "/"; }
 std::string StatesPath() { return tico::UserContentRoot(ContentRoot("tico_states_path", "sdmc:/tico/states/"), false) + CURRENT_SLUG + "/"; }
 

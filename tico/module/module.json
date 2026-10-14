@@ -5,6 +5,7 @@
   "launch": "\"{nro}\" \"{slug}\" \"{rom}\" \"{title}\"",
   "settings": "config/modules/fceumm/settings.json",
   "config_file": "fceumm.jsonc",
+  "system_dir": "fceumm",
   "is_libretro": true,
   "achievements": true,
   "systems": [
