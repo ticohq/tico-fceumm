@@ -26,6 +26,16 @@ It adds:
 
 ----------
 
+## Credits
+
+This fork is built on top of FCEUmm, the libretro core derived from FCE Ultra and FCEUX.
+All core emulation work belongs to the FCEUmm, FCE Ultra and FCEUX authors and contributors.
+
+- **libretro FCEUmm** — https://github.com/libretro/libretro-fceumm
+- **FCEUX** — https://github.com/TASEmulators/fceux
+
+----------
+
 ## A Note
 
 A lot of work in this scene disappears over time — not because it lacked value, but because it was never shared.
