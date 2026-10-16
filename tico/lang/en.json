@@ -158,5 +158,6 @@
     "settings_fceumm_tab_video": "Video",
     "settings_fceumm_triangle": "Triangle",
     "settings_fceumm_turbo_delay": "Turbo Delay (in frames)",
-    "settings_fceumm_turbo_enable": "Turbo Enable"
+    "settings_fceumm_turbo_enable": "Turbo Enable",
+    "emulator_quick_menu_tip": "Press {plus} and {minus} together to open the quick menu"
 }

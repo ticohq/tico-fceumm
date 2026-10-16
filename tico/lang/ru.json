@@ -178,5 +178,6 @@
     "settings_fceumm_value_top_right": "Сверху справа",
     "settings_fceumm_value_unlimited": "Без ограничений",
     "settings_fceumm_value_up": "Вверх",
-    "settings_fceumm_value_very_high": "Очень высокое"
+    "settings_fceumm_value_very_high": "Очень высокое",
+    "emulator_quick_menu_tip": "Нажмите {plus} и {minus} вместе, чтобы открыть быстрое меню"
 }

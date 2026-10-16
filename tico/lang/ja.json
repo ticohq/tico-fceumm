@@ -175,5 +175,6 @@
     "settings_fceumm_value_top_left": "左上",
     "settings_fceumm_value_top_right": "右上",
     "settings_fceumm_value_unlimited": "無制限",
-    "settings_fceumm_value_up": "上"
+    "settings_fceumm_value_up": "上",
+    "emulator_quick_menu_tip": "{plus}と{minus}を同時に押すとクイックメニューが開きます"
 }

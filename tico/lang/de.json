@@ -197,5 +197,6 @@
     "settings_fceumm_value_top_right": "Oben rechts",
     "settings_fceumm_value_unlimited": "Unbegrenzt",
     "settings_fceumm_value_up": "Oben",
-    "settings_fceumm_value_very_high": "Sehr hoch"
+    "settings_fceumm_value_very_high": "Sehr hoch",
+    "emulator_quick_menu_tip": "Drücke {plus} und {minus} gleichzeitig, um das Schnellmenü zu öffnen"
 }
